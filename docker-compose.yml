@@ -1,5 +1,3 @@
-version: "3.9"
-
 # 10-node RainStorm cluster
 # node1 is the introducer (SWIM) and leader (RainStorm ResourceManager)
 # node2-10 are worker nodes
