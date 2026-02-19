@@ -10,26 +10,27 @@ A distributed, fault-tolerant stream processing framework built from scratch in 
   Client
     │  submit job (TCP)
     ▼
-┌─────────────────────────────────────────────────────────┐
-│  Leader (node1)                                         │
-│  ┌──────────────┐   ┌──────────────┐                   │
-│  │ RainStorm RM │   │ SWIM Member  │                   │
-│  │ (scheduler)  │   │ (gossip/UDP) │                   │
-│  └──────┬───────┘   └──────────────┘                   │
-│         │ assign tasks                                  │
-└─────────┼───────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  Leader (node1)                                          │
+│                                                          │
+│  ┌──────────────┐   ┌──────────────┐                     │
+│  │ RainStorm RM │   │ SWIM Member  │                     │
+│  │ (scheduler)  │   │ (gossip/UDP) │                     │
+│  └──────┬───────┘   └──────────────┘                     │
+│         │ assign tasks                                   │
+└─────────┼────────────────────────────────────────────────┘
           │
           ▼ (TCP, hash-partitioned tuples)
 ┌──────────────────────────────────────────────────────────┐
 │  Workers (node2–node10)                                  │
 │                                                          │
-│   Stage 1 Tasks          Stage 2 Tasks                  │
-│   ┌──────────┐           ┌──────────┐                   │
-│   │ Operator │ ─tuples─► │ Operator │ ─► HyDFS output  │
-│   │ (filter) │           │ (count)  │                   │
-│   └──────────┘           └──────────┘                   │
+│   Stage 1 Tasks           Stage 2 Tasks                  │
+│   ┌──────────┐            ┌──────────┐                   │
+│   │ Operator │ ─tuples──► │ Operator │ ─► HyDFS output   │
+│   │ (filter) │            │ (count)  │                   │
+│   └──────────┘            └──────────┘                   │
 │                                                          │
-│   Each worker also runs: HyDFS node + SWIM member       │
+│   Each worker also runs: HyDFS node + SWIM member        │
 └──────────────────────────────────────────────────────────┘
           │  ▲
           │  │  replicated file I/O (TCP)
@@ -45,12 +46,15 @@ A distributed, fault-tolerant stream processing framework built from scratch in 
 
 ## Core Subsystems
 
-### 1. Failure Detection — SWIM Gossip Protocol (`pkg/membership/`)
+### 1. Stream Processing Engine — RainStorm (`pkg/rainstorm/`)
 
-- Each node maintains a full membership list updated via UDP gossip
-- Direct ping + indirect ping-request for failure detection
-- Suspicion mechanism reduces false positives under packet loss
-- Converges across 10 nodes within 3–6 seconds of a failure
+- Leader-worker model: leader schedules tasks, workers execute operator binaries
+- Up to 3 pipeline stages; parallel tasks per stage with hash partitioning
+- Operator types: **Filter** (grep), **Transform** (field extraction), **AggregateByKey** (count)
+- User-defined operators are standalone binaries, decoupled from the framework
+- Two key features:
+  - **Exactly-once semantics**: HyDFS-backed state logs; failed tasks recover by replaying log
+  - **Dynamic autoscaling**: ResourceManager monitors per-task throughput and adds/removes tasks at runtime
 
 ### 2. Distributed File System — HyDFS (`pkg/fileops/`, `pkg/storage/`)
 
@@ -60,15 +64,12 @@ A distributed, fault-tolerant stream processing framework built from scratch in 
 - Guarantees: per-client append ordering, read-your-writes, eventual consistency
 - Automatic re-replication and re-balancing on node join/leave
 
-### 3. Stream Processing Engine — RainStorm (`pkg/rainstorm/`)
+### 3. Failure Detection — SWIM Gossip Protocol (`pkg/membership/`)
 
-- Leader-worker model: leader schedules tasks, workers execute operator binaries
-- Up to 3 pipeline stages; parallel tasks per stage with hash partitioning
-- Operator types: **Filter** (grep), **Transform** (field extraction), **AggregateByKey** (count)
-- User-defined operators are standalone binaries, decoupled from the framework
-- Two key features:
-  - **Exactly-once semantics**: HyDFS-backed state logs; failed tasks recover by replaying log
-  - **Dynamic autoscaling**: ResourceManager monitors per-task throughput and adds/removes tasks at runtime
+- Each node maintains a full membership list updated via UDP gossip
+- Direct ping + indirect ping-request for failure detection
+- Suspicion mechanism reduces false positives under packet loss
+- Converges across 10 nodes within 3–6 seconds of a failure
 
 ### 4. Distributed Log Query (`pkg/logging/`)
 
@@ -79,7 +80,7 @@ A distributed, fault-tolerant stream processing framework built from scratch in 
 
 ## Running Locally
 
-**Requirements:** Docker, Docker Compose, Go 1.21+
+**Requirements:** Docker, Docker Compose, Go 1.26+
 
 ```bash
 # 1. Build the Docker image (first time only, or after code changes)
