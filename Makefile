@@ -2,7 +2,7 @@
 
 # ─── Local build ────────────────────────────────────────────────────────────
 
-## build: Compile all binaries locally (requires Go 1.21+)
+## build: Compile all binaries locally (requires Go 1.26+)
 build:
 	go build -o rainstorm .
 	go build -o rainstorm-cli cmd/cli/main.go

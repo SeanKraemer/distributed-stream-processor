@@ -209,7 +209,7 @@ Building this system end-to-end reinforced several distributed systems principle
 
 ## Tech Stack
 
-- **Language:** Go 1.21+
+- **Language:** Go 1.26+
 - **Communication:** TCP (control plane, file ops, tuple routing), UDP (SWIM gossip)
 - **Storage:** Custom block store with append-only log semantics
 - **Infrastructure:** Docker, Docker Compose
