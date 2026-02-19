@@ -1,4 +1,4 @@
-.PHONY: build build-docker up down demo logs clean test help
+.PHONY: build build-docker up down demo logs clean test tmux node1 status help
 
 # ─── Local build ────────────────────────────────────────────────────────────
 
@@ -66,6 +66,10 @@ test:
 	@docker compose ps
 
 # ─── Utilities ───────────────────────────────────────────────────────────────
+
+## tmux: Open tmux session (node1 CLI + logs + shell)
+tmux:
+	@./scripts/local/tmux_cluster.sh
 
 ## node1: Attach to node1's interactive CLI
 node1:
