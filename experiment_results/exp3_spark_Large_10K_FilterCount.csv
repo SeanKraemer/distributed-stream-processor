@@ -1,0 +1,4 @@
+run,elapsed_sec,input_tuples,output_lines,throughput_tuples_per_sec
+1,14.432543000,10000,3,692.87
+2,14.294707000,10000,3,699.55
+3,14.828996000,10000,3,674.35

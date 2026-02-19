@@ -1,0 +1,18 @@
+# Set default behavior to automatically normalize line endings
+* text=auto
+
+# Force shell scripts to always use LF
+*.sh text eol=lf
+
+# Force other text files to use LF
+*.go text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.gif binary

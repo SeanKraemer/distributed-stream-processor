@@ -1,0 +1,23 @@
+{
+  "active_profile": "default",
+  "profiles": {
+    "default": {
+      "node_port": 8000,
+      "membership_port": 8001,
+      "rainstorm_port": 8002,
+      "client_port": 8003
+    }
+  },
+  "nodes": [
+    "node1",
+    "node2",
+    "node3",
+    "node4",
+    "node5",
+    "node6",
+    "node7",
+    "node8",
+    "node9",
+    "node10"
+  ]
+}

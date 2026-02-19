@@ -1,0 +1,138 @@
+version: "3.9"
+
+# 10-node RainStorm cluster
+# node1 is the introducer (SWIM) and leader (RainStorm ResourceManager)
+# node2-10 are worker nodes
+
+x-node-defaults: &node-defaults
+  image: rainstorm:latest
+  build:
+    context: .
+    dockerfile: Dockerfile
+  stdin_open: true   # Keep stdin open so the interactive CLI stays alive
+  tty: true          # Allocate a pseudo-TTY
+  networks:
+    - rainstorm-net
+  volumes:
+    - ./data:/app/data:ro         # Shared read-only input data
+    - ./logs:/app/logs            # Shared log directory (write per-node)
+  restart: "no"
+
+services:
+  node1:
+    <<: *node-defaults
+    hostname: node1
+    container_name: node1
+    ports:
+      - "8000:8000"   # node port (exposed for external inspection)
+      - "8003:8003"   # client port (for rainstorm-cli from host)
+    volumes:
+      - ./data:/app/data:ro
+      - ./logs:/app/logs
+      - hydfs-node1:/app/hydfs_storage
+
+  node2:
+    <<: *node-defaults
+    hostname: node2
+    container_name: node2
+    volumes:
+      - ./data:/app/data:ro
+      - ./logs:/app/logs
+      - hydfs-node2:/app/hydfs_storage
+    depends_on: [node1]
+
+  node3:
+    <<: *node-defaults
+    hostname: node3
+    container_name: node3
+    volumes:
+      - ./data:/app/data:ro
+      - ./logs:/app/logs
+      - hydfs-node3:/app/hydfs_storage
+    depends_on: [node1]
+
+  node4:
+    <<: *node-defaults
+    hostname: node4
+    container_name: node4
+    volumes:
+      - ./data:/app/data:ro
+      - ./logs:/app/logs
+      - hydfs-node4:/app/hydfs_storage
+    depends_on: [node1]
+
+  node5:
+    <<: *node-defaults
+    hostname: node5
+    container_name: node5
+    volumes:
+      - ./data:/app/data:ro
+      - ./logs:/app/logs
+      - hydfs-node5:/app/hydfs_storage
+    depends_on: [node1]
+
+  node6:
+    <<: *node-defaults
+    hostname: node6
+    container_name: node6
+    volumes:
+      - ./data:/app/data:ro
+      - ./logs:/app/logs
+      - hydfs-node6:/app/hydfs_storage
+    depends_on: [node1]
+
+  node7:
+    <<: *node-defaults
+    hostname: node7
+    container_name: node7
+    volumes:
+      - ./data:/app/data:ro
+      - ./logs:/app/logs
+      - hydfs-node7:/app/hydfs_storage
+    depends_on: [node1]
+
+  node8:
+    <<: *node-defaults
+    hostname: node8
+    container_name: node8
+    volumes:
+      - ./data:/app/data:ro
+      - ./logs:/app/logs
+      - hydfs-node8:/app/hydfs_storage
+    depends_on: [node1]
+
+  node9:
+    <<: *node-defaults
+    hostname: node9
+    container_name: node9
+    volumes:
+      - ./data:/app/data:ro
+      - ./logs:/app/logs
+      - hydfs-node9:/app/hydfs_storage
+    depends_on: [node1]
+
+  node10:
+    <<: *node-defaults
+    hostname: node10
+    container_name: node10
+    volumes:
+      - ./data:/app/data:ro
+      - ./logs:/app/logs
+      - hydfs-node10:/app/hydfs_storage
+    depends_on: [node1]
+
+networks:
+  rainstorm-net:
+    driver: bridge
+
+volumes:
+  hydfs-node1:
+  hydfs-node2:
+  hydfs-node3:
+  hydfs-node4:
+  hydfs-node5:
+  hydfs-node6:
+  hydfs-node7:
+  hydfs-node8:
+  hydfs-node9:
+  hydfs-node10:

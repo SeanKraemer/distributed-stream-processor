@@ -1,0 +1,70 @@
+# ─── IDE / Editor ────────────────────────────────────────────────────────────
+.vscode/
+.claude/
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── OS ──────────────────────────────────────────────────────────────────────
+.DS_Store
+**/.DS_Store
+.Spotlight-V100
+.Trashes
+Thumbs.db
+
+# ─── Built binaries ──────────────────────────────────────────────────────────
+/rainstorm
+/rainstorm-cli
+/rainstorm_cli
+/hydfs
+/main
+
+# Operators
+ops/count/count
+ops/count/main
+ops/echo/echo
+ops/echo/main
+ops/grep/grep
+ops/grep/main
+ops/identity/identity
+ops/identity/main
+ops/output/output
+ops/output/main
+ops/transform/transform
+ops/transform/main
+ops/*/*.op
+ops/*/*_op
+
+# CLI binary
+cmd/cli/rainstorm
+cmd/cli/main
+
+# ─── Runtime data (Docker volumes / local runs) ──────────────────────────────
+hydfs_storage/*
+hydfs_local/*
+rainstorm_outputs/*
+logs/*
+output/*
+
+# Keep empty placeholder dirs tracked
+!hydfs_storage/.gitkeep
+!hydfs_local/.gitkeep
+!rainstorm_outputs/.gitkeep
+!logs/.gitkeep
+
+# ─── Experiment outputs ───────────────────────────────────────────────────────
+experiments.log
+demo_test*_terminal_output.txt
+
+# ─── Large / generated files ─────────────────────────────────────────────────
+data/wikicorpus.txt
+*.tgz
+*.tar.gz
+
+# ─── Python cache ────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python

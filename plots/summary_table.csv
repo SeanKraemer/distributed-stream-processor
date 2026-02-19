@@ -1,0 +1,5 @@
+Experiment,RainStorm Mean (tuples/sec),RainStorm Std Dev,Spark Mean (tuples/sec),Spark Std Dev,Winner
+Small_5K Filter+Count (grep+count),106.97,0.64,346.50,15.44,Spark
+Small_5K Filter+Transform (grep+replace),106.29,0.58,357.01,27.32,Spark
+Large_10K Filter+Count (grep+count),161.62,0.29,688.92,13.06,Spark
+Large_10K Filter+Transform (grep+replace),160.06,1.42,699.37,43.63,Spark

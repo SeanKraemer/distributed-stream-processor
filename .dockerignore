@@ -1,0 +1,26 @@
+# Build artifacts
+rainstorm
+rainstorm-cli
+ops/grep/grep
+ops/count/count
+ops/transform/transform
+ops/identity/identity
+ops/echo/echo
+ops/output/output
+
+# Runtime directories (mounted as volumes)
+hydfs_storage/
+hydfs_local/
+logs/
+rainstorm_outputs/
+experiment_results/
+plots/
+
+# Development files
+.git/
+*.log
+*.pdf
+
+# Spark (not needed inside containers)
+spark_apps/
+scripts/spark/
