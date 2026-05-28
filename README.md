@@ -82,6 +82,8 @@ A distributed, fault-tolerant stream processing framework built from scratch in 
 
 **Requirements:** Docker, Docker Compose, Go 1.26+
 
+For a concise operator-focused walkthrough, see [docs/operations.md](docs/operations.md).
+
 ```bash
 # 1. Build the Docker image (first time only, or after code changes)
 make build-docker
