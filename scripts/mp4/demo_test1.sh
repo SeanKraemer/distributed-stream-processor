@@ -26,7 +26,7 @@ echo "Column: $COLUMN"
 echo ""
 
 # Demo spec requires Ntasks_per_stage = 3
-go run cmd/cli/main.go \
+docker exec node1 ./rainstorm-cli \
     2 \
     3 \
     grep \

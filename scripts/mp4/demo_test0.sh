@@ -6,7 +6,7 @@ echo "Testing: 100 tuples/sec rate limiting"
 echo ""
 
 # Demo spec requires Ntasks_per_stage = 3
-go run cmd/cli/main.go \
+docker exec node1 ./rainstorm-cli \
     1 \
     3 \
     identity \

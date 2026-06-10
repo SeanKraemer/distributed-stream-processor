@@ -163,13 +163,8 @@ echo ""
 # Step 5: Check autoscaling events in logs
 echo "📊 Step 5: Checking autoscaling events in logs"
 
-# Find most recent leader log (VM01 is the leader)
-LEADER_LOG=$(ls -t "$PROJECT_ROOT/logs/vm01_"*.log 2>/dev/null | head -1)
-
-if [ -z "$LEADER_LOG" ]; then
-    # Fallback to old naming pattern
-    LEADER_LOG=$(ls -t "$PROJECT_ROOT/logs/rainstorm_"*.log 2>/dev/null | head -1)
-fi
+# Find most recent leader log (node1 is the leader; logs/ is bind-mounted)
+LEADER_LOG=$(ls -t "$PROJECT_ROOT/logs/node1_"*.log 2>/dev/null | head -1)
 
 if [ -z "$LEADER_LOG" ]; then
     echo "   ⚠️  No leader log found"

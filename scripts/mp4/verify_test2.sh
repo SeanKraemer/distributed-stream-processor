@@ -120,12 +120,12 @@ echo ""
 # Step 6: Check leader logs for task restart (SSH to VM01 since logs aren't collected yet)
 echo "📋 Step 6: Checking for task restart in logs..."
 
-# First try local logs (if already collected), then SSH to VM01
-RESTART_LOGS=$(grep -iE "TASK RESTART|TASK FAILED" "$PROJECT_ROOT"/logs/vm01*.log 2>/dev/null | tail -10)
+# logs/ is bind-mounted from the host, so check the local leader log first,
+# then fall back to grepping inside the container.
+RESTART_LOGS=$(grep -iE "TASK RESTART|TASK FAILED" "$PROJECT_ROOT"/logs/node1_*.log 2>/dev/null | tail -10)
 if [ -z "$RESTART_LOGS" ]; then
-    # Logs not collected yet - SSH to VM01 to check the log directly
-    RESTART_LOGS=$(docker exec node1 \
-        "grep -iE 'TASK RESTART|TASK FAILED' /app/logs/vm01*.log 2>/dev/null | tail -10" 2>/dev/null)
+    RESTART_LOGS=$(docker exec node1 sh -c \
+        "grep -iE 'TASK RESTART|TASK FAILED' /app/logs/node1_*.log 2>/dev/null | tail -10" 2>/dev/null)
 fi
 
 if [ -n "$RESTART_LOGS" ]; then

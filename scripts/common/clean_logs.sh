@@ -1,70 +1,17 @@
 #!/bin/bash
-# Script to clear all logs both locally and on VMs
-# Usage: ./scripts/clean_logs.sh [local|remote|all]
+# Clear node logs.
+#
+# logs/ is bind-mounted into every container as /app/logs, so cleaning the
+# local directory clears the cluster's logs too.
+#
+# Usage: ./scripts/common/clean_logs.sh
 
 set -e
 
-MODE="${1:-all}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-echo "🧹 Log Cleanup Script"
-echo "===================="
-
-# Function to clean local logs
-clean_local() {
-    echo "🗑️  Cleaning local logs..."
-    if [ -d "logs" ]; then
-        rm -f logs/*.log
-        echo "✅ Local logs directory cleared"
-    else
-        echo "⚠️  Local logs directory not found"
-    fi
-}
-
-# Function to clean remote VM logs
-clean_remote() {
-    echo "🗑️  Cleaning logs on remote VMs..."
-
-    CLUSTER_USER=""
-    # Read VM hostnames from config.json or use default list
-    VMS=(
-        "node1"
-        "node1"
-        "node1"
-        "node1"
-        "node1"
-        "node1"
-        "node1"
-        "node1"
-        "node1"
-        "node1"
-    )
-
-    for vm in "${VMS[@]}"; do
-        echo "  Cleaning logs on $vm..."
-        ssh ${NETID}@${vm} "cd /app && rm -f logs/*.log" 2>/dev/null && \
-            echo "    ✅ $vm cleaned" || \
-            echo "    ⚠️  Failed to clean $vm (might not exist or not accessible)"
-    done
-}
-
-# Main execution
-case "$MODE" in
-    local)
-        clean_local
-        ;;
-    remote)
-        clean_remote
-        ;;
-    all)
-        clean_local
-        clean_remote
-        ;;
-    *)
-        echo "❌ Invalid mode: $MODE"
-        echo "Usage: $0 [local|remote|all]"
-        exit 1
-        ;;
-esac
-
-echo ""
-echo "✅ Log cleanup complete!"
+echo "Cleaning logs/..."
+mkdir -p "$PROJECT_ROOT/logs"
+rm -f "$PROJECT_ROOT/logs"/*.log
+echo "Log cleanup complete."

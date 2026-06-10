@@ -1,4 +1,4 @@
-.PHONY: build build-docker up down demo logs clean test tmux node1 status help
+.PHONY: build build-docker up down reset demo logs clean test tmux node1 status help
 
 # ─── Local build ────────────────────────────────────────────────────────────
 
@@ -35,9 +35,17 @@ up:
 	@echo "  Attach node1: docker attach node1"
 	@echo "  Stop cluster: make down"
 
-## down: Stop and remove all cluster containers
+## down: Stop and remove all cluster containers (HyDFS volumes are kept)
 down:
 	docker compose down
+
+## reset: Stop the cluster and wipe HyDFS state, then start fresh
+## (exactly-once state persists in volumes; reset before re-running a demo)
+reset:
+	docker compose down -v
+	docker compose up -d
+	@echo ""
+	@echo "Cluster reset with clean HyDFS state. Wait ~5 seconds for membership to converge."
 
 ## logs: Tail logs from all nodes
 logs:
@@ -50,17 +58,12 @@ restart: down build-docker up
 
 ## demo: Run the end-to-end demo pipeline (filter + count)
 demo:
-	@echo "Running demo: 2-stage grep+count pipeline"
-	@echo "Uploading dataset to HyDFS..."
-	docker exec node1 ./rainstorm-cli --op1=grep --op1-args="--pattern=SEVERE" --op2=count \
-		--src=dataset1.csv --dest=demo_output.txt --exactly-once=true 2>/dev/null || \
-	docker exec -it node1 ./rainstorm-cli 2>/dev/null || \
-	(echo ""; echo "To submit a job manually, attach to node1:"; echo "  docker attach node1"; echo "  (then type commands at the CLI prompt)")
+	@./scripts/local/run_demo.sh
 
 ## test: Run smoke test — verify cluster is up and all 10 nodes joined
 test:
-	@echo "Checking cluster membership..."
-	@docker exec node1 sh -c 'echo "list_mem" | timeout 3 ./rainstorm 2>/dev/null || true'
+	@echo "Checking cluster membership (via node1 client port)..."
+	@docker exec node1 sh -c 'echo "list_mem" | nc -w 3 localhost 8003'
 	@echo ""
 	@echo "Checking container status:"
 	@docker compose ps

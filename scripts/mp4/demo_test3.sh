@@ -53,7 +53,7 @@ echo ""
 # Application 2: grep (filter) + transform (extract fields 1-3)
 # Autoscaling enabled (exactly_once disabled per spec)
 echo "🚀 Submitting job with AUTOSCALING ENABLED..."
-go run cmd/cli/main.go \
+docker exec node1 ./rainstorm-cli \
     2 \
     3 \
     grep \

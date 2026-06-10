@@ -22,7 +22,7 @@ echo ""
 
 # Demo spec requires Ntasks_per_stage = 3
 # Submit the job
-go run cmd/cli/main.go \
+docker exec node1 ./rainstorm-cli \
     2 \
     3 \
     grep \
@@ -58,7 +58,7 @@ GREP_TASK=""
 
 for i in $(seq 1 $MAX_RETRIES); do
     # Get list of tasks
-    TASK_LIST=$(echo '{"type":"list_tasks","sender":"client","payload":{}}' | nc -w 5 "$LEADER_HOST" "$RAINSTORM_PORT" 2>/dev/null)
+    TASK_LIST=$(docker exec node1 sh -c "echo '{\"type\":\"list_tasks\",\"sender\":\"client\",\"payload\":{}}' | nc -w 5 localhost $RAINSTORM_PORT" 2>/dev/null)
 
     if [ -z "$TASK_LIST" ]; then
         echo "   Attempt $i/$MAX_RETRIES: Failed to connect to leader"
@@ -120,8 +120,7 @@ echo "   VM: $KILL_VM"
 echo "   PID: $KILL_PID"
 
 # Send kill command
-echo "{\"type\":\"kill_task\",\"sender\":\"client\",\"payload\":{\"vm\":\"$KILL_VM\",\"pid\":$KILL_PID}}" | \
-    nc -w 5 "$LEADER_HOST" "$RAINSTORM_PORT" 2>/dev/null
+docker exec node1 sh -c "echo '{\"type\":\"kill_task\",\"sender\":\"client\",\"payload\":{\"vm\":\"$KILL_VM\",\"pid\":$KILL_PID}}' | nc -w 5 localhost $RAINSTORM_PORT" 2>/dev/null
 
 echo ""
 echo "✅ Kill command sent!"

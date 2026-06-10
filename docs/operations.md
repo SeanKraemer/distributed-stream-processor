@@ -20,6 +20,24 @@ make down
 
 `make up` starts one leader/introducer node and nine worker nodes. Each node runs SWIM membership, HyDFS storage, and RainStorm stream processing services.
 
+`make demo` uploads a dataset to HyDFS, submits a 2-stage filter+count pipeline with exactly-once semantics, waits for completion, and checks the aggregated results against ground truth (pattern `STOP`: 34 rows, 14 unique sign messages).
+
+To re-run the demo, reset first — exactly-once dedup state persists in the HyDFS volumes and a stale-state re-run would (correctly) suppress all output:
+
+```bash
+make reset && make demo
+```
+
+## End-to-End Test Suite
+
+```bash
+./scripts/mp4/run_test.sh 1    # filter & count, verified against ground truth
+./scripts/mp4/run_test.sh 2    # exactly-once under a mid-run task kill
+./scripts/mp4/run_test.sh 3    # autoscaling under load
+```
+
+Each run resets the cluster, uploads data, submits the job, collects per-task outputs from all containers, and runs the matching `verify_test*.sh` script.
+
 ## Useful Commands
 
 ```bash

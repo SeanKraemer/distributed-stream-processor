@@ -1,4 +1,9 @@
 #!/bin/bash
+#
+# NOTE: VM-era script. This targeted the original 10-VM deployment used for
+# the RainStorm-vs-Spark benchmarking experiments and is retained to document
+# that methodology. It is NOT runnable against the local Docker cluster.
+#
 # Deploy Spark Streaming to all VMs
 #
 # Usage:
