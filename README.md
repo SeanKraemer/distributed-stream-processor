@@ -197,14 +197,16 @@ CI runs build, vet, gofmt, the race-enabled test suite, golangci-lint, and a Doc
 
 ## Performance
 
-Benchmarked RainStorm against Apache Spark Streaming (equal cluster, equal data, equal task counts):
+Benchmarked RainStorm against Apache Spark Streaming on a 10-node cluster (equal data, equal task counts; 4 workloads × 3 runs each; mean throughput ± std dev):
 
-| System          | 5K tuples       | 10K tuples      |
-|-----------------|-----------------|-----------------|
-| RainStorm       | ~107 tuples/sec | ~161 tuples/sec |
-| Spark Streaming | ~352 tuples/sec | ~694 tuples/sec |
+| Workload                  | RainStorm          | Spark Streaming    | Ratio |
+|---------------------------|--------------------|--------------------|-------|
+| 5K tuples, filter+count   | 107.0 ± 0.6 t/s    | 346.5 ± 15.4 t/s   | 3.2×  |
+| 5K tuples, filter+transform | 106.3 ± 0.6 t/s  | 357.0 ± 27.3 t/s   | 3.4×  |
+| 10K tuples, filter+count  | 161.6 ± 0.3 t/s    | 688.9 ± 13.1 t/s   | 4.3×  |
+| 10K tuples, filter+transform | 160.1 ± 1.4 t/s | 699.4 ± 43.6 t/s   | 4.4×  |
 
-**Takeaway:** Spark is 2–4× faster due to JVM optimizations and in-memory execution. RainStorm trades raw throughput for stronger fault guarantees — exactly-once semantics require per-tuple checkpointing to the distributed file system, which introduces HyDFS I/O on the critical path.
+**Takeaways:** Spark is 3–4× faster due to JVM optimizations and micro-batching, and the gap widens with volume because RainStorm's exactly-once semantics put per-tuple HyDFS checkpointing on the critical path, which scales worse than amortized batch checkpoints. Two second-order observations worth noting: RainStorm's run-to-run variance is tiny (std 0.3–1.4) while Spark's is large (13–44, JVM GC), and both systems' throughput is insensitive to stateless vs stateful operators (±3%) because serialization and ACK overhead dominate at this key cardinality. Raw data lives in `experiment_results/`.
 
 ---
 
@@ -226,7 +228,8 @@ Benchmarked RainStorm against Apache Spark Streaming (equal cluster, equal data,
 - Exactly-once state logs are keyed by task ID, so consecutive jobs share state — reset the cluster (`make reset`) between runs rather than relying on job isolation
 - HyDFS create replication waits a fixed delay for the pipelined ACK instead of tracking per-request ACKs; failures surface later through re-replication and merge
 - Final job output is collected from per-worker files out-of-band (`scripts/mp4/collect_output.sh`) rather than merged into HyDFS by the leader
-- Two parallel ring implementations exist (`pkg/hashing` for RainStorm using SHA-256 and liveness filtering; `pkg/fileops` for HyDFS using SHA-1 without it) — a vestige of the staged build-up, kept as-is and pinned by tests
+- Two parallel ring implementations exist (`pkg/hashing` using SHA-256 with liveness filtering; `pkg/fileops` using SHA-1 without it) — drift from an earlier coordinator design rather than intent. Kept as-is and pinned by tests; unifying on the SHA-256 ring is the obvious refactor
+- Autoscaling decisions require the watermark breach to be sustained for ~3 s, observe a cooldown between scaling events, and never scale the source stage; downscaled tasks drain via routing-table update and EOF markers before exiting
 - No encryption or authentication on inter-node communication
 - The Spark comparison requires a separate Spark cluster (not included in Docker Compose setup)
 
