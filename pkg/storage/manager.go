@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sync"
@@ -25,7 +24,7 @@ func (m *Manager) WriteFile(filename string, data []byte) error {
 	defer m.mu.Unlock()
 
 	path := filepath.Join(StorageDir, filename)
-	return ioutil.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0644)
 }
 
 // ReadFile reads file content from disk
@@ -34,7 +33,7 @@ func (m *Manager) ReadFile(filename string) ([]byte, error) {
 	defer m.mu.RUnlock()
 
 	path := filepath.Join(StorageDir, filename)
-	return ioutil.ReadFile(path)
+	return os.ReadFile(path)
 }
 
 // FileExists checks if file exists
@@ -61,7 +60,7 @@ func (m *Manager) ListFiles() ([]string, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	files, err := ioutil.ReadDir(StorageDir)
+	files, err := os.ReadDir(StorageDir)
 	if err != nil {
 		return nil, err
 	}

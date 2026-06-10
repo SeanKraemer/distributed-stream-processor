@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/SeanKraemer/distributed-stream-processor/pkg/membership"
-	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -1174,7 +1173,7 @@ func (s *Server) createHyDFSFile(filename string) error {
 	tmpDir := fmt.Sprintf("%s/rainstorm_outputs", cwd)
 	os.MkdirAll(tmpDir, 0755)
 	tmpPath := fmt.Sprintf("%s/hydfs_empty_%d.txt", tmpDir, time.Now().UnixNano())
-	err := ioutil.WriteFile(tmpPath, []byte{}, 0644)
+	err := os.WriteFile(tmpPath, []byte{}, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %v", err)
 	}

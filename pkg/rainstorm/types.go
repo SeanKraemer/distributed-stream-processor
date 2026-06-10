@@ -1,3 +1,7 @@
+// Package rainstorm implements the stream-processing framework: a leader
+// that schedules and monitors tasks across workers, workers that run
+// operator binaries and route tuples by key hash, and HyDFS-backed state
+// logs that provide exactly-once semantics under task failure.
 package rainstorm
 
 // OperatorType defines the type of operation a task performs

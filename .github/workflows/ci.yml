@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Test
+        run: go test ./... -race -count=1
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v7
+        with:
+          version: latest
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build cluster image
+        run: docker compose build
+      - name: Smoke test — start cluster, verify membership converges
+        run: |
+          docker compose up -d
+          sleep 15
+          docker exec node1 sh -c 'echo "list_mem" | nc -w 3 localhost 8003' | tee /tmp/members.txt
+          ALIVE=$(grep -c "Alive" /tmp/members.txt)
+          echo "Alive members: $ALIVE"
+          test "$ALIVE" -eq 10
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

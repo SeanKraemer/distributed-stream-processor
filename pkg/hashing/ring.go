@@ -1,3 +1,5 @@
+// Package hashing implements the consistent-hash ring used to place files
+// on their successor nodes with minimal movement on membership change.
 package hashing
 
 import (

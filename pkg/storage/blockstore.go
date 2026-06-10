@@ -1,9 +1,11 @@
+// Package storage provides HyDFS's on-disk layer: an append-only block
+// store with per-client sequencing, checksums, and deterministic merge
+// ordering by (client, sequence).
 package storage
 
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,7 +69,7 @@ func (bs *BlockStore) CreateFile(hydfsFilename string, content []byte, fileID ui
 
 	// Write first block
 	blockPath := filepath.Join(fileDir, "block_01.txt")
-	if err := ioutil.WriteFile(blockPath, content, 0644); err != nil {
+	if err := os.WriteFile(blockPath, content, 0644); err != nil {
 		os.RemoveAll(fileDir) // Clean up on failure
 		return fmt.Errorf("failed to write block: %v", err)
 	}
@@ -92,7 +94,7 @@ func (bs *BlockStore) CreateFile(hydfsFilename string, content []byte, fileID ui
 		return fmt.Errorf("failed to marshal metadata: %v", err)
 	}
 
-	if err := ioutil.WriteFile(metadataPath, metadataBytes, 0644); err != nil {
+	if err := os.WriteFile(metadataPath, metadataBytes, 0644); err != nil {
 		os.RemoveAll(fileDir) // Clean up on failure
 		return fmt.Errorf("failed to write metadata: %v", err)
 	}
@@ -117,7 +119,7 @@ func (bs *BlockStore) ReadFile(hydfsFilename string) ([]byte, error) {
 	var content []byte
 	for i := 1; i <= metadata.TotalBlocks; i++ {
 		blockPath := filepath.Join(fileDir, fmt.Sprintf("block_%02d.txt", i))
-		blockData, err := ioutil.ReadFile(blockPath)
+		blockData, err := os.ReadFile(blockPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read block %d: %v", i, err)
 		}
@@ -130,7 +132,7 @@ func (bs *BlockStore) ReadFile(hydfsFilename string) ([]byte, error) {
 // readMetadata reads the metadata file
 func (bs *BlockStore) readMetadata(fileDir string) (*FileMetadata, error) {
 	metadataPath := filepath.Join(fileDir, "_metadata.json")
-	data, err := ioutil.ReadFile(metadataPath)
+	data, err := os.ReadFile(metadataPath)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +185,7 @@ func (bs *BlockStore) MergeFile(hydfsFilename string, allBlocksData []BlockInfo)
 	}
 
 	// Remove old block files
-	files, _ := ioutil.ReadDir(fileDir)
+	files, _ := os.ReadDir(fileDir)
 	for _, f := range files {
 		if strings.HasPrefix(f.Name(), "block_") {
 			os.Remove(filepath.Join(fileDir, f.Name()))
@@ -194,7 +196,7 @@ func (bs *BlockStore) MergeFile(hydfsFilename string, allBlocksData []BlockInfo)
 	newBlockMetadata := []BlockMeta{}
 	for i, block := range sortedBlocks {
 		blockPath := filepath.Join(fileDir, fmt.Sprintf("block_%02d.txt", i+1))
-		if err := ioutil.WriteFile(blockPath, block.Content, 0644); err != nil {
+		if err := os.WriteFile(blockPath, block.Content, 0644); err != nil {
 			return fmt.Errorf("failed to write merged block %d: %v", i+1, err)
 		}
 
@@ -225,7 +227,7 @@ func (bs *BlockStore) MergeFile(hydfsFilename string, allBlocksData []BlockInfo)
 		return fmt.Errorf("failed to marshal metadata: %v", err)
 	}
 
-	if err := ioutil.WriteFile(metadataPath, metadataBytes, 0644); err != nil {
+	if err := os.WriteFile(metadataPath, metadataBytes, 0644); err != nil {
 		return fmt.Errorf("failed to update metadata: %v", err)
 	}
 
@@ -250,7 +252,7 @@ func (bs *BlockStore) GetAllBlocks(hydfsFilename string) ([]BlockInfo, error) {
 	// Read all blocks
 	for i := 1; i <= metadata.TotalBlocks; i++ {
 		blockPath := filepath.Join(fileDir, fmt.Sprintf("block_%02d.txt", i))
-		content, err := ioutil.ReadFile(blockPath)
+		content, err := os.ReadFile(blockPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read block %d: %v", i, err)
 		}
@@ -303,7 +305,7 @@ func (bs *BlockStore) ListFiles() ([]string, error) {
 	bs.mu.RLock()
 	defer bs.mu.RUnlock()
 
-	files, err := ioutil.ReadDir(bs.baseDir)
+	files, err := os.ReadDir(bs.baseDir)
 	if err != nil {
 		return nil, err
 	}
@@ -361,7 +363,7 @@ func (bs *BlockStore) AppendFile(hydfsFilename string, content []byte, clientID 
 			return fmt.Errorf("failed to marshal initial metadata: %v", err)
 		}
 
-		if err := ioutil.WriteFile(metadataPath, metadataBytes, 0644); err != nil {
+		if err := os.WriteFile(metadataPath, metadataBytes, 0644); err != nil {
 			return fmt.Errorf("failed to write initial metadata: %v", err)
 		}
 	}
@@ -391,7 +393,7 @@ func (bs *BlockStore) AppendFile(hydfsFilename string, content []byte, clientID 
 
 	// Write new block
 	blockPath := filepath.Join(fileDir, fmt.Sprintf("block_%02d.txt", metadata.TotalBlocks))
-	if err := ioutil.WriteFile(blockPath, content, 0644); err != nil {
+	if err := os.WriteFile(blockPath, content, 0644); err != nil {
 		return fmt.Errorf("failed to write append block: %v", err)
 	}
 
@@ -402,7 +404,7 @@ func (bs *BlockStore) AppendFile(hydfsFilename string, content []byte, clientID 
 		return fmt.Errorf("failed to marshal metadata: %v", err)
 	}
 
-	if err := ioutil.WriteFile(metadataPath, metadataBytes, 0644); err != nil {
+	if err := os.WriteFile(metadataPath, metadataBytes, 0644); err != nil {
 		return fmt.Errorf("failed to update metadata: %v", err)
 	}
 

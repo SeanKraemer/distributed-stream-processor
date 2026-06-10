@@ -1,3 +1,5 @@
+// Package common holds the shared cluster configuration and node types used
+// by the membership, HyDFS, and RainStorm subsystems.
 package common
 
 import (

@@ -8,7 +8,7 @@ import (
 	"os"
 )
 
-// server hostnames — default list used when config is not available.
+// HOSTS is the default node list used when config is not available.
 // In practice these are loaded from config.json.
 var HOSTS = []string{
 	"node1",
@@ -33,7 +33,7 @@ func GetHostName() (string, error) {
 	return name, nil
 }
 
-// Define message transmission tools and datatypes
+// MessageType identifies the kind of membership protocol message.
 type MessageType int
 
 const (

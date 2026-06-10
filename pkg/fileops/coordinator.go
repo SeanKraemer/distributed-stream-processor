@@ -1,3 +1,6 @@
+// Package fileops implements HyDFS file operations: it maps files to their
+// coordinator and replicas on the consistent-hash ring and orchestrates
+// create/get/append/merge against the block store.
 package fileops
 
 import (

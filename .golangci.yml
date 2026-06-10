@@ -1,0 +1,21 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - misspell
+  settings:
+    staticcheck:
+      checks:
+        - all
+        # Allow conventional initialisms to differ (e.g. Id vs ID) in
+        # long-standing exported names.
+        - -ST1003
+
+formatters:
+  enable:
+    - gofmt

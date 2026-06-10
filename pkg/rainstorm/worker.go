@@ -837,8 +837,7 @@ func (s *Server) sendMetricsToLeader(metrics TaskMetrics) {
 	}
 	defer conn.Close()
 
+	// Metrics reporting is best-effort; a lost sample is harmless.
 	encoder := json.NewEncoder(conn)
-	if err := encoder.Encode(msg); err != nil {
-		// Silent failure for metrics reporting
-	}
+	_ = encoder.Encode(msg)
 }

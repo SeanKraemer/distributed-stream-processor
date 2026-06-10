@@ -540,9 +540,9 @@ func startGossipLoop(node *common.Node) {
 				SenderInfo: self,
 				InfoMap:    infoMap,
 			}
-			if _, err := membership.SendMessage(g, target.Hostname, target.Port); err != nil {
-				// log, but continue (don't spam logs)
-			}
+			// Send errors are deliberately dropped: gossip is periodic and
+			// lossy by design, and logging every miss would spam the logs.
+			_, _ = membership.SendMessage(g, target.Hostname, target.Port)
 
 		case <-failureTicker.C:
 			// Skip failure detection if not active
@@ -1336,10 +1336,10 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			})
 
 			var result strings.Builder
-			result.WriteString(fmt.Sprintf("%-40s %-10s %-20s\n", "Hostname", "Port", "Ring ID"))
+			fmt.Fprintf(&result, "%-40s %-10s %-20s\n", "Hostname", "Port", "Ring ID")
 			result.WriteString(strings.Repeat("-", 75) + "\n")
 			for _, e := range entries {
-				result.WriteString(fmt.Sprintf("%-40s %-10d %020d\n", e.info.Hostname, e.info.Port, e.id))
+				fmt.Fprintf(&result, "%-40s %-10d %020d\n", e.info.Hostname, e.info.Port, e.id)
 			}
 
 			// Log the full membership list to logs
@@ -1762,11 +1762,11 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			// Build response
 			var result strings.Builder
 			result.WriteString("════════════════════════════════════════════════════════════\n")
-			result.WriteString(fmt.Sprintf("File Name: %s\n", hydfsFile))
-			result.WriteString(fmt.Sprintf("File ID:   %020d\n", fileID))
-			result.WriteString(fmt.Sprintf("Replication Factor (n): %d\n", hashing.NumReplicas))
+			fmt.Fprintf(&result, "File Name: %s\n", hydfsFile)
+			fmt.Fprintf(&result, "File ID:   %020d\n", fileID)
+			fmt.Fprintf(&result, "Replication Factor (n): %d\n", hashing.NumReplicas)
 			result.WriteString("════════════════════════════════════════════════════════════\n")
-			result.WriteString(fmt.Sprintf("%-40s %-20s\n", "Hostname", "Node ID"))
+			fmt.Fprintf(&result, "%-40s %-20s\n", "Hostname", "Node ID")
 			result.WriteString(strings.Repeat("-", 60) + "\n")
 
 			for i, nodeID := range successors {
@@ -1775,7 +1775,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 				if i == 0 {
 					marker = " [PRIMARY]"
 				}
-				result.WriteString(fmt.Sprintf("%-40s %020d%s\n", info.Hostname, nodeID, marker))
+				fmt.Fprintf(&result, "%-40s %020d%s\n", info.Hostname, nodeID, marker)
 			}
 			result.WriteString("════════════════════════════════════════════════════════════\n")
 
@@ -1824,12 +1824,12 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			// Build response
 			var result strings.Builder
 			result.WriteString("════════════════════════════════════════════════════════════\n")
-			result.WriteString(fmt.Sprintf("Node: %s\n", self.Hostname))
-			result.WriteString(fmt.Sprintf("Ring ID: %020d\n", node.RingID))
+			fmt.Fprintf(&result, "Node: %s\n", self.Hostname)
+			fmt.Fprintf(&result, "Ring ID: %020d\n", node.RingID)
 			result.WriteString("════════════════════════════════════════════════════════════\n")
-			result.WriteString(fmt.Sprintf("Stored Files: %d\n", len(storedFiles)))
+			fmt.Fprintf(&result, "Stored Files: %d\n", len(storedFiles))
 			result.WriteString(strings.Repeat("-", 60) + "\n")
-			result.WriteString(fmt.Sprintf("%-30s %-20s\n", "HyDFS Filename", "File ID"))
+			fmt.Fprintf(&result, "%-30s %-20s\n", "HyDFS Filename", "File ID")
 			result.WriteString(strings.Repeat("-", 60) + "\n")
 
 			// Sort filenames for consistent output
@@ -1841,7 +1841,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 
 			for _, filename := range filenames {
 				fileID := storedFiles[filename]
-				result.WriteString(fmt.Sprintf("%-30s %020d\n", filename, fileID))
+				fmt.Fprintf(&result, "%-30s %020d\n", filename, fileID)
 			}
 			result.WriteString("════════════════════════════════════════════════════════════\n")
 

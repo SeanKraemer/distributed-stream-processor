@@ -1,3 +1,6 @@
+// Package membership implements SWIM-style group membership with ping-ack
+// failure detection, optional suspicion, incarnation counters, and a
+// gossip-based dissemination variant.
 package membership
 
 import (
@@ -12,7 +15,7 @@ import (
 	"time"
 )
 
-// member states
+// MemberState is the lifecycle state of a member: Alive, Suspected, or Failed.
 type MemberState int
 
 const (
