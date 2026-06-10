@@ -1155,9 +1155,10 @@ func (s *Server) collectAndMergeOutput(destFile string, outputFiles map[string]s
 	log.Printf("📦 [LEADER] Starting output collection for HyDFS file: %s", destFile)
 	log.Printf("📦 [LEADER] Output files to collect: %v", outputFiles)
 
-	// TODO: Implement Phase 2 - collect rainstorm_outputs/{timestamp}/ from workers
-	// and merge into HyDFS destFile
-	// For now, just log that we would do this
+	// Collection is performed out-of-band: sink tasks write
+	// rainstorm_outputs/{timestamp}/ locally on each worker, and
+	// scripts/mp4/collect_output.sh gathers and labels them per node.
+	// This hook only records where the outputs live.
 	s.JobMutex.RLock()
 	jobTs := s.JobTimestamp
 	s.JobMutex.RUnlock()

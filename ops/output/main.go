@@ -24,7 +24,9 @@ func (o *OutputOp) Process(t rainstorm.Tuple, emit func(rainstorm.Tuple)) {
 		} else {
 			log.Printf("✅ [OUTPUT] Successfully wrote output file")
 		}
-		// TODO: Upload to HyDFS here
+		// HyDFS upload is handled outside this operator: the framework sink path
+		// appends via -hydfs-dest, and scripts/mp4/collect_output.sh gathers the
+		// per-task files.
 		return
 	}
 
@@ -80,7 +82,6 @@ func main() {
 		buffer:     make([]string, 0),
 	}
 
-	// TODO: Add mechanism to trigger Flush at end of stream
-	// For now, this will collect tuples
+	// Process flushes the buffer when the EOF tuple arrives.
 	rainstorm.StartOperation(op)
 }

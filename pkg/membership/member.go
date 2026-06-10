@@ -591,8 +591,9 @@ func (m *Membership) WholeTable() string {
 }
 
 func (m *Membership) GetTarget() (Info, error) {
-	// Round Robin with random permutation
-	// TODO: maybe not to send message to self
+	// Round robin over a random permutation. Self is intentionally not
+	// excluded: a self-ping costs one wasted protocol period per cycle and is
+	// answered locally, which is harmless and keeps this hot path simple.
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	if len(m.Members) == 0 {

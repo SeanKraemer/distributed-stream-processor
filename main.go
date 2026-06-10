@@ -1265,8 +1265,9 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 			}
 
 		case "merge_complete":
+			// Informational only: merge correctness is enforced synchronously on
+			// the primary before replicas are told to adopt the merged file.
 			log.Printf("node-conn: received merge complete for %s from %s", msg.Filename, msg.Sender)
-			// TODO: Handle merge completion acknowledgment
 
 		default:
 			log.Printf("node-conn: unknown message type: %s", msg.Type)
@@ -1539,14 +1540,13 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 
 				log.Printf("📤 [CREATE] Replication message sent to primary, waiting for final ACK...")
 
-				// Wait for ACK with timeout
-				// The ACK will arrive via handleNodeConnection and be processed there
-				// For now, we'll use a simple timeout approach
-				// TODO: Implement proper async ACK tracking with channels
+				// Known limitation: the final ACK arrives asynchronously via
+				// handleNodeConnection, and there is no per-request ACK registry to
+				// rendezvous with it. A fixed delay bounds the wait instead; failures
+				// surface later through re-replication and merge. Tracking ACKs
+				// per-request would mean threading a channel registry through the
+				// node-connection handler. See README "Design notes & limitations".
 				time.Sleep(3 * time.Second)
-
-				// Since we can't easily track individual ACKs without major refactoring,
-				// we'll trust the pipelined replication completed if no errors
 				log.Printf("🎉 [CREATE] File %s created and replicated via pipelined replication", hydfsFile)
 
 				// Log all replicas in ring order
