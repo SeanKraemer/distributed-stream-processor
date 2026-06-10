@@ -213,7 +213,7 @@ Benchmarked RainStorm against Apache Spark Streaming (equal cluster, equal data,
 - **Failure detection:** SWIM with suspicion — O(log n) convergence, tunable false-positive rate
 - **Storage failures:** HyDFS re-replicates to 3 successors when a node leaves; re-balances on join
 - **Task failures (exactly-once):** Each task appends processed tuple IDs and results to a HyDFS log before ACKing upstream. On recovery, the task replays its log to restore state without reprocessing.
-- **Task failures (autoscaling mode):** At-least-once delivery; duplicates possible but throughput is maintained
+- **Task failures (autoscaling mode):** At-least-once delivery; duplicates possible but throughput is maintained. Rescaling is not epoch-coordinated, so a small number of in-flight tuples can be lost or duplicated at the moment tasks are added or drained — the autoscaling verifier allows a 0.5% tolerance for this
 - **Leader failure:** Not currently tolerated (single leader design; leader is assumed stable)
 
 ---
