@@ -1,3 +1,5 @@
+// Package logging implements the distributed log querier: a cluster-wide
+// parallel grep over each node's log file, queried via the client port.
 package logging
 
 import (
@@ -109,16 +111,16 @@ func QueryDistributed(grepArgs []string, aliveVMs map[string]int) (string, error
 	successCount := 0
 
 	for _, result := range results {
-		formatted.WriteString(fmt.Sprintf("VM%02d (%s):\n", result.VMNumber, result.Hostname))
+		fmt.Fprintf(&formatted, "VM%02d (%s):\n", result.VMNumber, result.Hostname)
 		formatted.WriteString("────────────────────────────────────────\n")
 
 		if result.Error != nil {
-			formatted.WriteString(fmt.Sprintf("  ERROR: %v\n\n", result.Error))
+			fmt.Fprintf(&formatted, "  ERROR: %v\n\n", result.Error)
 		} else if result.Output == "" {
 			formatted.WriteString("  No matches\n\n")
 			successCount++
 		} else {
-			formatted.WriteString(fmt.Sprintf("  %d lines matched:\n", result.LineCount))
+			fmt.Fprintf(&formatted, "  %d lines matched:\n", result.LineCount)
 			// Show first 5 lines as preview
 			lines := strings.Split(strings.TrimSpace(result.Output), "\n")
 			previewLines := 5
@@ -126,10 +128,10 @@ func QueryDistributed(grepArgs []string, aliveVMs map[string]int) (string, error
 				previewLines = len(lines)
 			}
 			for i := 0; i < previewLines; i++ {
-				formatted.WriteString(fmt.Sprintf("  %s\n", lines[i]))
+				fmt.Fprintf(&formatted, "  %s\n", lines[i])
 			}
 			if len(lines) > previewLines {
-				formatted.WriteString(fmt.Sprintf("  ... (%d more lines)\n", len(lines)-previewLines))
+				fmt.Fprintf(&formatted, "  ... (%d more lines)\n", len(lines)-previewLines)
 			}
 			formatted.WriteString("\n")
 			totalLines += result.LineCount
@@ -138,8 +140,8 @@ func QueryDistributed(grepArgs []string, aliveVMs map[string]int) (string, error
 	}
 
 	formatted.WriteString("════════════════════════════════════════\n")
-	formatted.WriteString(fmt.Sprintf("Summary: %d/%d VMs responded successfully\n", successCount, len(results)))
-	formatted.WriteString(fmt.Sprintf("Total matching lines: %d\n", totalLines))
+	fmt.Fprintf(&formatted, "Summary: %d/%d VMs responded successfully\n", successCount, len(results))
+	fmt.Fprintf(&formatted, "Total matching lines: %d\n", totalLines)
 
 	return formatted.String(), nil
 }
@@ -159,13 +161,12 @@ func Query(grepArgs []string) (string, error) {
 		return "", err
 	}
 
-	// Find the most recent log file matching the new pattern: vm01_*.log
-	// Updated to use timestamped logs/ directory pattern
-	logPattern := fmt.Sprintf("logs/vm%02d_*.log", machineNum)
+	// Find the most recent log file. Nodes write logs/node<N>_<timestamp>.log
+	// (see the log setup in main); older deployments used vm<NN>_*.log.
+	logPattern := fmt.Sprintf("logs/node%d_*.log", machineNum)
 	matches, err := filepath.Glob(logPattern)
 	if err != nil || len(matches) == 0 {
-		// Fallback: try legacy pattern
-		logPattern = fmt.Sprintf("logs/node%d.log", machineNum)
+		logPattern = fmt.Sprintf("logs/vm%02d_*.log", machineNum)
 		matches, _ = filepath.Glob(logPattern)
 	}
 
