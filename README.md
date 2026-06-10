@@ -6,6 +6,10 @@ A distributed, fault-tolerant stream processing framework built from scratch in 
 
 Originated as the cumulative project for UIUC's CS 425 Distributed Systems graduate course (Fall 2025); the stage-by-stage requirements are summarized in [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).
 
+![Demo: cluster boot, SWIM membership, HyDFS replication, and a streaming job surviving a mid-run task kill with exactly-once results](docs/demo.gif)
+
+*One take, no cuts: 10-node cluster boots, SWIM membership converges, a dataset replicates to 3 HyDFS nodes, a streaming job starts — then a live worker task is killed mid-stream. The leader detects the failure, restarts the task on another node, and the final counts are still exact with zero duplicates.*
+
 ---
 
 ## Architecture
