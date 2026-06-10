@@ -1,6 +1,10 @@
 # Distributed Stream Processing System
 
+[![CI](https://github.com/SeanKraemer/distributed-stream-processor/actions/workflows/ci.yml/badge.svg)](https://github.com/SeanKraemer/distributed-stream-processor/actions/workflows/ci.yml)
+
 A distributed, fault-tolerant stream processing framework built from scratch in Go. The system implements a full distributed computing stack — gossip-based failure detection, a consistent-hashing distributed file system, and a real-time stream processing engine with exactly-once semantics and dynamic autoscaling — all running across a 10-node cluster simulated locally via Docker Compose.
+
+Originated as the cumulative project for UIUC's CS 425 Distributed Systems graduate course (Fall 2025); the stage-by-stage requirements are summarized in [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).
 
 ---
 
@@ -91,28 +95,36 @@ make build-docker
 # 2. Start the 10-node cluster
 make up
 
-# 3. View membership converging across all nodes
-make logs
+# 3. Verify all 10 nodes joined (SWIM membership table)
+make test
 
-# 4. Attach to node1's interactive CLI
-docker attach node1
+# 4. Run the end-to-end demo: upload a dataset to HyDFS, submit a
+#    2-stage filter+count pipeline with exactly-once semantics, and
+#    check the results against ground truth
+make demo
 
-# 5. Inside node1 — upload data and submit a streaming job:
-create /app/data/dataset1.csv dataset1.csv
-# (ctrl+a ctrl+d to detach without stopping, or open new terminal)
-
-# 6. Submit via the CLI binary from your host terminal:
-docker exec node1 ./rainstorm-cli \
-  --stages=2 --tasks=3 \
-  --op1=grep --op1-args="--pattern=SEVERE --column=4" \
-  --op2=count \
-  --src=dataset1.csv --dest=output.txt \
-  --exactly-once=true --autoscale=false \
-  --input-rate=100 --lw=10 --hw=50
-
-# 7. Stop the cluster
+# 5. Stop the cluster
 make down
 ```
+
+Exactly-once state persists in the HyDFS volumes between runs, so re-running the demo requires a clean slate:
+
+```bash
+make reset && make demo
+```
+
+To submit a job by hand (the CLI takes positional arguments — stages, tasks per stage, one operator + args per stage, then source, destination, exactly-once, autoscale, input rate, and low/high watermarks):
+
+```bash
+docker exec node1 ./rainstorm-cli \
+  2 3 \
+  grep --pattern=STOP --column=4 \
+  count \
+  dataset1.csv output.txt \
+  true false 100 10 50
+```
+
+You can also attach to node1's interactive CLI with `make node1` (detach with `ctrl+a` then `ctrl+d`) — run `help` there for HyDFS and membership commands. Set `LOG_LEVEL=debug` before `make up` to enable per-tuple diagnostics in the node logs.
 
 ### Fault tolerance demo
 
@@ -124,6 +136,26 @@ docker stop node5
 # The ResourceManager reassigns them to surviving workers
 # With exactly-once enabled, no tuples are lost or duplicated
 ```
+
+---
+
+## Testing
+
+Unit tests cover the deterministic cores of each subsystem — the consistent-hash ring (including the minimal-movement redistribution property), SWIM membership state transitions, the HyDFS block store's per-client sequencing and merge ordering, RainStorm's hash partitioning, and the operator binaries:
+
+```bash
+go test ./... -race
+```
+
+End-to-end behavior is exercised against the live cluster:
+
+```bash
+./scripts/mp4/run_test.sh 1   # filter & count, verified against ground truth
+./scripts/mp4/run_test.sh 2   # exactly-once under a mid-run task kill
+./scripts/mp4/run_test.sh 3   # autoscaling under load
+```
+
+CI runs build, vet, gofmt, the race-enabled test suite, golangci-lint, and a Docker job that boots the full 10-node cluster and asserts membership converges.
 
 ---
 
@@ -139,7 +171,6 @@ docker stop node5
 │   ├── storage/              # Block-level storage engine
 │   ├── hashing/              # Consistent hashing ring
 │   ├── rainstorm/            # Stream processing (leader, worker, API)
-│   ├── network/              # TCP client/server utilities
 │   ├── logging/              # Distributed log query
 │   └── common/               # Shared config and types
 ├── ops/                      # Stream operator binaries
@@ -187,11 +218,15 @@ Benchmarked RainStorm against Apache Spark Streaming (equal cluster, equal data,
 
 ---
 
-## Limitations
+## Design Notes & Limitations
 
 - Single leader is a bottleneck and single point of failure for the control plane
 - Autoscaling and exactly-once are mutually exclusive (autoscaling uses at-least-once)
 - Practical cluster size: tested up to 10 nodes; SWIM gossip scales to hundreds but the HyDFS coordinator is not distributed
+- Exactly-once state logs are keyed by task ID, so consecutive jobs share state — reset the cluster (`make reset`) between runs rather than relying on job isolation
+- HyDFS create replication waits a fixed delay for the pipelined ACK instead of tracking per-request ACKs; failures surface later through re-replication and merge
+- Final job output is collected from per-worker files out-of-band (`scripts/mp4/collect_output.sh`) rather than merged into HyDFS by the leader
+- Two parallel ring implementations exist (`pkg/hashing` for RainStorm using SHA-256 and liveness filtering; `pkg/fileops` for HyDFS using SHA-1 without it) — a vestige of the staged build-up, kept as-is and pinned by tests
 - No encryption or authentication on inter-node communication
 - The Spark comparison requires a separate Spark cluster (not included in Docker Compose setup)
 
