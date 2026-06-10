@@ -28,7 +28,7 @@ func main() {
 	// Load Config for Leader Port
 	cfg, err := common.LoadConfig("config.json")
 	if err != nil {
-		log.Printf("⚠️  Failed to load config.json: %v. Using default port 8002.", err)
+		log.Printf("Failed to load config.json: %v. Using default port 8002.", err)
 		cfg = &common.Config{RainStormPort: 8002}
 	}
 
@@ -40,7 +40,7 @@ func main() {
 	fmt.Sscanf(args[1], "%d", &nTasks)
 
 	if nStages < 1 || nStages > 3 {
-		log.Fatalf("❌ Nstages must be 1-3, got %d", nStages)
+		log.Fatalf("Nstages must be 1-3, got %d", nStages)
 	}
 
 	// Parse operations: Need to find where stage definitions end
@@ -49,7 +49,7 @@ func main() {
 	// Each stage has: executable followed by 0 or more arguments (arguments start with "--" or are quoted strings)
 
 	if len(args) < 2+nStages+7 {
-		log.Fatal("❌ Not enough arguments. Need at least Nstages operation executables plus 7 fixed params.")
+		log.Fatal("Not enough arguments. Need at least Nstages operation executables plus 7 fixed params.")
 	}
 
 	// Parse stages and their arguments
@@ -81,7 +81,7 @@ func main() {
 	}
 
 	if len(opPositions) != nStages {
-		log.Fatalf("❌ Could not find %d operators (found %d at positions %v)", nStages, len(opPositions), opPositions)
+		log.Fatalf("Could not find %d operators (found %d at positions %v)", nStages, len(opPositions), opPositions)
 	}
 
 	// Second pass: extract operators and their arguments
@@ -118,11 +118,11 @@ func main() {
 	hw := 0
 	fmt.Sscanf(fixedParams[6], "%d", &hw)
 
-	log.Printf("📋 RainStorm Job Submission:")
-	log.Printf("   Stages: %d, Tasks/Stage: %d", nStages, nTasks)
-	log.Printf("   Source: %s, Dest: %s", hydfsSource, hydfsDest)
-	log.Printf("   ExactlyOnce: %v, Autoscale: %v", exactlyOnce, autoscale)
-	log.Printf("   InputRate: %d, LW: %d, HW: %d", inputRate, lw, hw)
+	log.Printf("RainStorm Job Submission:")
+	log.Printf("Stages: %d, Tasks/Stage: %d", nStages, nTasks)
+	log.Printf("Source: %s, Dest: %s", hydfsSource, hydfsDest)
+	log.Printf("ExactlyOnce: %v, Autoscale: %v", exactlyOnce, autoscale)
+	log.Printf("InputRate: %d, LW: %d, HW: %d", inputRate, lw, hw)
 
 	payload := rainstorm.JobSubmitPayload{
 		App:           filepath.Base(os.Args[0]),
@@ -153,14 +153,14 @@ func main() {
 
 	conn, err := net.DialTimeout("tcp", leaderAddr, 5*time.Second)
 	if err != nil {
-		log.Fatalf("❌ Failed to connect to leader %s: %v", leaderAddr, err)
+		log.Fatalf("Failed to connect to leader %s: %v", leaderAddr, err)
 	}
 	defer conn.Close()
 
 	encoder := json.NewEncoder(conn)
 	if err := encoder.Encode(msg); err != nil {
-		log.Fatalf("❌ Failed to send job: %v", err)
+		log.Fatalf("Failed to send job: %v", err)
 	}
 
-	fmt.Println("✅ Job submitted successfully!")
+	fmt.Println("Job submitted successfully!")
 }

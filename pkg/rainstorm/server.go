@@ -93,15 +93,15 @@ func (s *Server) Start() {
 	port := s.Config.RainStormPort
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
-		log.Fatalf("❌ [RAINSTORM] Failed to listen on port %d: %v", port, err)
+		log.Fatalf("[RAINSTORM] Failed to listen on port %d: %v", port, err)
 	}
 
-	log.Printf("⛈️  [RAINSTORM] Server listening on port %d as %s", port, s.Role)
+	log.Printf("[RAINSTORM] Server listening on port %d as %s", port, s.Role)
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Printf("❌ [RAINSTORM] Accept error: %v", err)
+			log.Printf("[RAINSTORM] Accept error: %v", err)
 			continue
 		}
 		go s.handleConnection(conn)
@@ -114,7 +114,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	decoder := json.NewDecoder(conn)
 	var msg RainStormMessage
 	if err := decoder.Decode(&msg); err != nil {
-		log.Printf("❌ [RAINSTORM] Failed to decode message: %v", err)
+		log.Printf("[RAINSTORM] Failed to decode message: %v", err)
 		return
 	}
 
@@ -123,7 +123,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		if s.Role == "leader" {
 			s.HandleSubmitJob(msg)
 		} else {
-			log.Printf("⚠️  [RAINSTORM] Worker received submit_job (ignoring)")
+			log.Printf("[RAINSTORM] Worker received submit_job (ignoring)")
 		}
 	case "schedule_task":
 		// Both leader and workers can execute tasks
@@ -161,6 +161,6 @@ func (s *Server) handleConnection(conn net.Conn) {
 			s.HandleGetTaskLocation(conn, msg)
 		}
 	default:
-		log.Printf("❓ [RAINSTORM] Unknown message type: %s", msg.Type)
+		log.Printf("[RAINSTORM] Unknown message type: %s", msg.Type)
 	}
 }

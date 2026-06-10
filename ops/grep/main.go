@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/SeanKraemer/distributed-stream-processor/internal/debuglog"
 	"github.com/SeanKraemer/distributed-stream-processor/pkg/rainstorm"
 	"log"
 	"regexp"
@@ -37,13 +38,13 @@ func (w *GrepOpWrapper) Process(t rainstorm.Tuple, emit func(rainstorm.Tuple)) {
 		}
 
 		if patternStr == "" {
-			log.Fatal("❌ Usage: grep <pattern> [column]  OR  grep --pattern=<pattern> [--column=N]")
+			log.Fatal("Usage: grep <pattern> [column]  OR  grep --pattern=<pattern> [--column=N]")
 		}
 
 		// Compile regex pattern
 		pattern, err := regexp.Compile(patternStr)
 		if err != nil {
-			log.Fatalf("❌ Invalid regex pattern '%s': %v", patternStr, err)
+			log.Fatalf("Invalid regex pattern '%s': %v", patternStr, err)
 		}
 
 		columnNum := *w.columnNum
@@ -53,9 +54,9 @@ func (w *GrepOpWrapper) Process(t rainstorm.Tuple, emit func(rainstorm.Tuple)) {
 		}
 
 		if columnNum > 0 {
-			log.Printf("🔍 [GREP] Starting with pattern: %s, extracting column %d as key", patternStr, columnNum)
+			log.Printf("[GREP] Starting with pattern: %s, extracting column %d as key", patternStr, columnNum)
 		} else {
-			log.Printf("🔍 [GREP] Starting with pattern: %s", patternStr)
+			log.Printf("[GREP] Starting with pattern: %s", patternStr)
 		}
 
 		w.actualOp = &GrepOp{
@@ -73,10 +74,10 @@ func (o *GrepOp) Process(t rainstorm.Tuple, emit func(rainstorm.Tuple)) {
 	// Handle EOF - forward it downstream ONCE, but always call emit for EOF tracking
 	if t.IsEOF {
 		if !o.eofForwarded {
-			log.Printf("🏁 [GREP] Received first EOF, forwarding to next stage")
+			log.Printf("[GREP] Received first EOF, forwarding to next stage")
 			o.eofForwarded = true
 		} else {
-			log.Printf("🏁 [GREP] Received additional EOF (tracking for shutdown)")
+			log.Printf("[GREP] Received additional EOF (tracking for shutdown)")
 		}
 		// Always call emit for EOF so the framework can track shutdown
 		emit(t)
@@ -88,8 +89,8 @@ func (o *GrepOp) Process(t rainstorm.Tuple, emit func(rainstorm.Tuple)) {
 
 	// Debug: Log first 3 tuples
 	if o.matchCount+o.filterCount < 3 {
-		log.Printf("🔍 [GREP DEBUG] Tuple: %q", valStr[:min(100, len(valStr))])
-		log.Printf("🔍 [GREP DEBUG] Pattern: %q, Matches: %v", o.pattern.String(), o.pattern.MatchString(valStr))
+		debuglog.Debugf("[GREP DEBUG] Tuple: %q", valStr[:min(100, len(valStr))])
+		debuglog.Debugf("[GREP DEBUG] Pattern: %q, Matches: %v", o.pattern.String(), o.pattern.MatchString(valStr))
 	}
 
 	// Check if pattern matches
@@ -110,7 +111,7 @@ func (o *GrepOp) Process(t rainstorm.Tuple, emit func(rainstorm.Tuple)) {
 			}
 
 			if o.matchCount <= 3 {
-				log.Printf("🔍 [GREP DEBUG] Extracted column %d as key: %q", o.columnNum, newTuple.Key)
+				debuglog.Debugf("[GREP DEBUG] Extracted column %d as key: %q", o.columnNum, newTuple.Key)
 			}
 		}
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/SeanKraemer/distributed-stream-processor/internal/debuglog"
 	"log"
 	"net"
 	"os"
@@ -48,7 +49,7 @@ func StartOperation(op UserOperation) {
 	flag.Parse()
 
 	if *port == 0 {
-		log.Fatal("❌ Port required")
+		log.Fatal("Port required")
 	}
 
 	// Target list and mutex for dynamic routing updates during autoscaling
@@ -58,7 +59,7 @@ func StartOperation(op UserOperation) {
 		targetList = strings.Split(*targets, ",")
 	}
 
-	log.Printf("🔧 [OP] Starting operation on port %d with %d targets", *port, len(targetList))
+	log.Printf("[OP] Starting operation on port %d with %d targets", *port, len(targetList))
 
 	// State tracking for Exactly-Once
 	processedIDs := make(map[string]bool)
@@ -68,23 +69,23 @@ func StartOperation(op UserOperation) {
 	var stateLogFile string
 	if *taskID != "" {
 		stateLogFile = fmt.Sprintf("%s.state", *taskID)
-		log.Printf("📋 [OP] Using TaskID-based state file: %s", stateLogFile)
+		log.Printf("[OP] Using TaskID-based state file: %s", stateLogFile)
 	} else {
 		stateLogFile = fmt.Sprintf("task_%d.state", *port)
-		log.Printf("⚠️  [OP] No TaskID provided, using port-based state file: %s", stateLogFile)
+		log.Printf("[OP] No TaskID provided, using port-based state file: %s", stateLogFile)
 	}
 
 	// Load state from HyDFS if available (recovery)
 	if *hydfsLeader != "" {
-		log.Printf("🔄 [OP] Loading state from HyDFS log: %s", stateLogFile)
+		log.Printf("[OP] Loading state from HyDFS log: %s", stateLogFile)
 		ids, err := fetchStateFromHyDFS(*hydfsLeader, stateLogFile)
 		if err == nil {
 			for _, id := range ids {
 				processedIDs[id] = true
 			}
-			log.Printf("✅ [OP] Recovered %d processed IDs", len(processedIDs))
+			log.Printf("[OP] Recovered %d processed IDs", len(processedIDs))
 		} else {
-			log.Printf("ℹ️  [OP] No previous state found or failed to load: %v", err)
+			log.Printf("[OP] No previous state found or failed to load: %v", err)
 		}
 	}
 
@@ -95,16 +96,16 @@ func StartOperation(op UserOperation) {
 		var err error
 		outFile, err = os.OpenFile(*outputFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 		if err != nil {
-			log.Fatalf("❌ [OP] Failed to open output file %s: %v", *outputFile, err)
+			log.Fatalf("[OP] Failed to open output file %s: %v", *outputFile, err)
 		}
-		log.Printf("📝 [OP] Sink stage will write output to: %s", *outputFile)
+		log.Printf("[OP] Sink stage will write output to: %s", *outputFile)
 	}
 
 	// HyDFS append setup for sink stage
 	var hydfsAppendChan chan string
 	var hydfsStopChan chan bool
 	if len(targetList) == 0 && *hydfsDestFile != "" && *hydfsLeader != "" {
-		log.Printf("📝 [OP] Sink stage will append to HyDFS file: %s via %s", *hydfsDestFile, *hydfsLeader)
+		log.Printf("[OP] Sink stage will append to HyDFS file: %s via %s", *hydfsDestFile, *hydfsLeader)
 		hydfsAppendChan = make(chan string, 1000) // Buffer up to 1000 lines
 		hydfsStopChan = make(chan bool)
 		go hydfsAppendWorker(*hydfsLeader, *hydfsDestFile, hydfsAppendChan, hydfsStopChan, *port)
@@ -138,13 +139,13 @@ func StartOperation(op UserOperation) {
 	leaderAddr := ""
 	if *rainstormLeader != "" {
 		leaderAddr = *rainstormLeader
-		log.Printf("📊 [OP] Metrics reporting enabled to leader: %s (task: %s)", leaderAddr, metricsTaskID)
+		log.Printf("[OP] Metrics reporting enabled to leader: %s (task: %s)", leaderAddr, metricsTaskID)
 	} else if *hydfsLeader != "" {
 		// Fallback: extract host from hydfsLeader and use port 8002
 		host, _, err := net.SplitHostPort(*hydfsLeader)
 		if err == nil && host != "" {
 			leaderAddr = net.JoinHostPort(host, "8002")
-			log.Printf("📊 [OP] Metrics reporting enabled to leader (fallback): %s (task: %s)", leaderAddr, metricsTaskID)
+			log.Printf("[OP] Metrics reporting enabled to leader (fallback): %s (task: %s)", leaderAddr, metricsTaskID)
 		}
 	}
 	go LogMetricsPeriodicallyWithReport(metricsTaskID, &tuplesProcessed, metricsStartTime, leaderAddr)
@@ -158,9 +159,9 @@ func StartOperation(op UserOperation) {
 	isSinkStage := len(targetList) == 0
 	if *numSources > 0 {
 		if isSinkStage {
-			log.Printf("📊 [OP] Sink stage expecting %d EOF markers", *numSources)
+			log.Printf("[OP] Sink stage expecting %d EOF markers", *numSources)
 		} else {
-			log.Printf("📊 [OP] Middle stage expecting %d EOF markers", *numSources)
+			log.Printf("[OP] Middle stage expecting %d EOF markers", *numSources)
 		}
 	}
 
@@ -174,7 +175,7 @@ func StartOperation(op UserOperation) {
 
 	// Initialize connections to all targets with retry logic
 	// Downstream tasks may not be ready immediately, so retry with backoff
-	log.Printf("⏳ [OP] Waiting 2 seconds for downstream tasks to initialize...")
+	log.Printf("[OP] Waiting 2 seconds for downstream tasks to initialize...")
 	time.Sleep(2 * time.Second)
 
 	for _, target := range targetList {
@@ -189,20 +190,20 @@ func StartOperation(op UserOperation) {
 			}
 			if attempt < 10 {
 				waitTime := time.Duration(attempt) * 500 * time.Millisecond
-				log.Printf("⚠️  [OP] Connection attempt %d to %s failed, retrying in %v...", attempt, target, waitTime)
+				log.Printf("[OP] Connection attempt %d to %s failed, retrying in %v...", attempt, target, waitTime)
 				time.Sleep(waitTime)
 			}
 		}
 
 		if err != nil {
-			log.Fatalf("❌ [OP] Failed to connect to target %s after 10 attempts: %v", target, err)
+			log.Fatalf("[OP] Failed to connect to target %s after 10 attempts: %v", target, err)
 		}
 
 		targetConnections[target] = conn
 		targetEncoders[target] = json.NewEncoder(conn)
 		targetDecoders[target] = json.NewDecoder(conn)
 		targetMutexes[target] = &sync.Mutex{} // Create per-target mutex
-		log.Printf("🔗 [OP] Connected to downstream target: %s", target)
+		log.Printf("[OP] Connected to downstream target: %s", target)
 
 		// Start Ack listener for this target
 		/*
@@ -225,14 +226,14 @@ func StartOperation(op UserOperation) {
 	defer func() {
 		for target, conn := range targetConnections {
 			conn.Close()
-			log.Printf("🔌 [OP] Closed connection to %s", target)
+			log.Printf("[OP] Closed connection to %s", target)
 		}
 	}()
 
 	// Start Listener
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
 	if err != nil {
-		log.Fatalf("❌ [OP] Failed to listen: %v", err)
+		log.Fatalf("[OP] Failed to listen: %v", err)
 	}
 
 	// Track if we've already broadcast EOF (only broadcast once per middle stage)
@@ -252,7 +253,7 @@ func StartOperation(op UserOperation) {
 			// Sink (Last Stage): Output to console and file
 			// Track EOF markers for shutdown
 			if t.IsEOF {
-				log.Printf("🏁 [SINK] Received EOF, skipping output")
+				log.Printf("[SINK] Received EOF, skipping output")
 
 				// Track EOF count for sink stage shutdown
 				if isSinkStage && *numSources > 0 {
@@ -261,11 +262,11 @@ func StartOperation(op UserOperation) {
 					currentEOF := eofCount
 					eofMutex.Unlock()
 
-					log.Printf("📊 [SINK] Received EOF %d/%d", currentEOF, *numSources)
+					log.Printf("[SINK] Received EOF %d/%d", currentEOF, *numSources)
 
 					// Signal shutdown when all EOFs received
 					if currentEOF >= *numSources {
-						log.Printf("✅ [SINK] All EOF markers received, shutting down")
+						log.Printf("[SINK] All EOF markers received, shutting down")
 						select {
 						case shutdownChan <- true:
 						default:
@@ -294,7 +295,7 @@ func StartOperation(op UserOperation) {
 				case hydfsAppendChan <- outputLine:
 					// Successfully queued for HyDFS append
 				default:
-					log.Printf("⚠️  [SINK] HyDFS append buffer full, dropping line")
+					log.Printf("[SINK] HyDFS append buffer full, dropping line")
 				}
 			}
 			return
@@ -310,7 +311,7 @@ func StartOperation(op UserOperation) {
 				currentEOF := eofCount
 				eofMutex.Unlock()
 
-				log.Printf("📊 [MIDDLE] Received EOF %d/%d", currentEOF, *numSources)
+				log.Printf("[MIDDLE] Received EOF %d/%d", currentEOF, *numSources)
 
 				// Helper function to broadcast EOF (called when all EOFs received or timeout)
 				broadcastEOF := func() {
@@ -331,7 +332,7 @@ func StartOperation(op UserOperation) {
 					copy(currentTargets, targetList)
 					targetListMutex.RUnlock()
 
-					log.Printf("📡 [OP] Broadcasting EOF to all %d downstream targets", len(currentTargets))
+					log.Printf("[OP] Broadcasting EOF to all %d downstream targets", len(currentTargets))
 
 					// Iterate over snapshot to catch autoscaled tasks
 					for _, target := range currentTargets {
@@ -349,9 +350,9 @@ func StartOperation(op UserOperation) {
 								targetMutexes[target] = &sync.Mutex{}
 								encoder = targetEncoders[target]
 								targetMu = targetMutexes[target]
-								log.Printf("🔗 [OP] Connected to new target for EOF broadcast: %s", target)
+								log.Printf("[OP] Connected to new target for EOF broadcast: %s", target)
 							} else {
-								log.Printf("⚠️  [OP] Failed to connect to target %s for EOF: %v", target, err)
+								log.Printf("[OP] Failed to connect to target %s for EOF: %v", target, err)
 								connMutex.Unlock()
 								continue
 							}
@@ -359,7 +360,7 @@ func StartOperation(op UserOperation) {
 						connMutex.Unlock()
 
 						if encoder == nil || targetMu == nil {
-							log.Printf("⚠️  [OP] No encoder/mutex for target %s", target)
+							log.Printf("[OP] No encoder/mutex for target %s", target)
 							continue
 						}
 
@@ -369,16 +370,16 @@ func StartOperation(op UserOperation) {
 						targetMu.Unlock()
 
 						if err != nil {
-							log.Printf("⚠️  [OP] Failed to send EOF to %s: %v", target, err)
+							log.Printf("[OP] Failed to send EOF to %s: %v", target, err)
 						} else {
-							log.Printf("✅ [OP] Sent EOF to %s", target)
+							log.Printf("[OP] Sent EOF to %s", target)
 						}
 					}
 				}
 
 				// Broadcast and shutdown when all EOFs received
 				if currentEOF >= *numSources {
-					log.Printf("✅ [MIDDLE] All EOF markers received, broadcasting and shutting down")
+					log.Printf("[MIDDLE] All EOF markers received, broadcasting and shutting down")
 					broadcastEOF()
 					select {
 					case shutdownChan <- true:
@@ -394,7 +395,7 @@ func StartOperation(op UserOperation) {
 							finalEOF := eofCount
 							eofMutex.Unlock()
 							if finalEOF > 0 && finalEOF < *numSources {
-								log.Printf("⏱️  [MIDDLE] EOF timeout: received %d/%d EOFs, broadcasting and shutting down anyway", finalEOF, *numSources)
+								log.Printf("[MIDDLE] EOF timeout: received %d/%d EOFs, broadcasting and shutting down anyway", finalEOF, *numSources)
 								broadcastEOF()
 								select {
 								case shutdownChan <- true:
@@ -423,7 +424,7 @@ func StartOperation(op UserOperation) {
 		numTargets := len(targetList)
 		if numTargets == 0 {
 			targetListMutex.RUnlock()
-			log.Printf("⚠️  [OP] No targets available for routing")
+			log.Printf("[OP] No targets available for routing")
 			return
 		}
 		targetIdx := hash % numTargets
@@ -439,7 +440,7 @@ func StartOperation(op UserOperation) {
 
 		// Lazy connection establishment for newly added targets (from autoscaling)
 		if encoder == nil || targetMu == nil {
-			log.Printf("🔗 [OP] Lazy connecting to new target %s", target)
+			log.Printf("[OP] Lazy connecting to new target %s", target)
 			var conn net.Conn
 			var err error
 			for attempt := 1; attempt <= 5; attempt++ {
@@ -452,7 +453,7 @@ func StartOperation(op UserOperation) {
 				}
 			}
 			if err != nil {
-				log.Printf("⚠️  [OP] Failed to connect to target %s: %v", target, err)
+				log.Printf("[OP] Failed to connect to target %s: %v", target, err)
 				return
 			}
 			connMutex.Lock()
@@ -464,7 +465,7 @@ func StartOperation(op UserOperation) {
 			decoder = targetDecoders[target]
 			targetMu = targetMutexes[target]
 			connMutex.Unlock()
-			log.Printf("✅ [OP] Lazy connected to autoscaled target: %s", target)
+			log.Printf("[OP] Lazy connected to autoscaled target: %s", target)
 		}
 
 		// Lock this target for the entire encode-decode cycle to prevent concurrent access
@@ -476,7 +477,7 @@ func StartOperation(op UserOperation) {
 		for attempt := 1; attempt <= 5; attempt++ {
 			err := encoder.Encode(t)
 			if err != nil {
-				log.Printf("⚠️  [OP] Failed to encode tuple to %s (attempt %d): %v", target, attempt, err)
+				log.Printf("[OP] Failed to encode tuple to %s (attempt %d): %v", target, attempt, err)
 				time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
 				continue
 			}
@@ -497,7 +498,7 @@ func StartOperation(op UserOperation) {
 			// conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 
 			if err := decoder.Decode(&response); err != nil {
-				log.Printf("⚠️  [OP] Failed to receive Ack from %s: %v", target, err)
+				log.Printf("[OP] Failed to receive Ack from %s: %v", target, err)
 				time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
 				continue
 			}
@@ -507,7 +508,7 @@ func StartOperation(op UserOperation) {
 				success = true
 				break
 			} else {
-				log.Printf("⚠️  [OP] Unexpected response from %s: type=%s, id=%s (expected ack for %s)",
+				log.Printf("[OP] Unexpected response from %s: type=%s, id=%s (expected ack for %s)",
 					target, response.Type, response.ID, t.ID)
 			}
 		}
@@ -515,7 +516,7 @@ func StartOperation(op UserOperation) {
 		targetMu.Unlock() // Unlock after encode-decode cycle complete
 
 		if !success {
-			log.Printf("❌ [OP] Failed to deliver tuple %s to %s after retries", t.ID, target)
+			log.Printf("[OP] Failed to deliver tuple %s to %s after retries", t.ID, target)
 			// In exactly-once, we should probably crash or retry forever?
 			// For now, log and continue, but this is data loss.
 		}
@@ -567,7 +568,7 @@ func StartOperation(op UserOperation) {
 						// Establish connections to new targets
 						for _, target := range newTargets {
 							if !existingTargets[target] {
-								log.Printf("🔗 [OP] Routing update: connecting to new target %s", target)
+								log.Printf("[OP] Routing update: connecting to new target %s", target)
 								go func(tgt string) {
 									var conn net.Conn
 									var err error
@@ -582,7 +583,7 @@ func StartOperation(op UserOperation) {
 										}
 									}
 									if err != nil {
-										log.Printf("⚠️  [OP] Failed to connect to new target %s: %v", tgt, err)
+										log.Printf("[OP] Failed to connect to new target %s: %v", tgt, err)
 										return
 									}
 									connMutex.Lock()
@@ -591,7 +592,7 @@ func StartOperation(op UserOperation) {
 									targetDecoders[tgt] = json.NewDecoder(conn)
 									targetMutexes[tgt] = &sync.Mutex{}
 									connMutex.Unlock()
-									log.Printf("✅ [OP] Connected to new autoscaled target: %s", tgt)
+									log.Printf("[OP] Connected to new autoscaled target: %s", tgt)
 								}(target)
 							}
 						}
@@ -601,7 +602,7 @@ func StartOperation(op UserOperation) {
 						targetList = newTargets
 						newLen := len(targetList)
 						targetListMutex.Unlock()
-						log.Printf("📡 [OP] Received routing update: targets changed from %d to %d", oldLen, newLen)
+						log.Printf("[OP] Received routing update: targets changed from %d to %d", oldLen, newLen)
 						continue
 					}
 
@@ -617,7 +618,7 @@ func StartOperation(op UserOperation) {
 
 					if isProcessed {
 						// Duplicate detected! Send Ack and skip processing.
-						log.Printf("♻️ [OP] DUPLICATE REJECTED: tuple %s (already processed, skipping)", t.ID)
+						debuglog.Debugf("[OP] DUPLICATE REJECTED: tuple %s (already processed, skipping)", t.ID)
 						ack := Tuple{Type: "ack", ID: t.ID}
 						encoder.Encode(ack)
 						continue
@@ -655,7 +656,7 @@ func StartOperation(op UserOperation) {
 					// Send Ack
 					ack := Tuple{Type: "ack", ID: t.ID}
 					if err := encoder.Encode(ack); err != nil {
-						log.Printf("⚠️  [OP] Failed to send Ack for %s: %v", t.ID, err)
+						log.Printf("[OP] Failed to send Ack for %s: %v", t.ID, err)
 					}
 				}
 			}(conn)
@@ -665,7 +666,7 @@ func StartOperation(op UserOperation) {
 	// Wait for shutdown signal (for ALL stages with numSources set)
 	if *numSources > 0 {
 		<-shutdownChan
-		log.Printf("🏁 [OP] Shutdown signal received, exiting gracefully")
+		log.Printf("[OP] Shutdown signal received, exiting gracefully")
 
 		// Set shutdown flag FIRST to prevent goroutines from sending to closed channels
 		atomic.StoreInt32(&isShuttingDown, 1)
@@ -782,7 +783,7 @@ func LogMetricsPeriodicallyWithReport(taskID string, tuplesProcessed *int, start
 			avgRate = float64(currentCount) / elapsed
 		}
 
-		log.Printf("📊 [TASK %s] Rate: %d tuples/sec (instant), %.2f tuples/sec (avg), Total: %d",
+		debuglog.Debugf("[TASK %s] Rate: %d tuples/sec (instant), %.2f tuples/sec (avg), Total: %d",
 			taskID, processedThisSecond, avgRate, currentCount)
 
 		// Send metrics to leader for autoscaling decisions
@@ -843,7 +844,7 @@ func hydfsAppendWorker(leaderAddr, destFile string, appendChan chan string, stop
 		// Send append request to HyDFS leader
 		conn, err := net.DialTimeout("tcp", leaderAddr, 5*time.Second)
 		if err != nil {
-			log.Printf("⚠️  [HYDFS-APPEND] Failed to connect to %s: %v", leaderAddr, err)
+			log.Printf("[HYDFS-APPEND] Failed to connect to %s: %v", leaderAddr, err)
 			return
 		}
 		defer conn.Close()
@@ -863,11 +864,11 @@ func hydfsAppendWorker(leaderAddr, destFile string, appendChan chan string, stop
 		jsonData, _ := json.Marshal(msg)
 		conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		if _, err := conn.Write(append(jsonData, '\n')); err != nil {
-			log.Printf("⚠️  [HYDFS-APPEND] Failed to send append: %v", err)
+			log.Printf("[HYDFS-APPEND] Failed to send append: %v", err)
 			return
 		}
 
-		log.Printf("📤 [HYDFS-APPEND] Appended %d lines to %s", len(strings.Split(content, "\n"))-1, destFile)
+		log.Printf("[HYDFS-APPEND] Appended %d lines to %s", len(strings.Split(content, "\n"))-1, destFile)
 	}
 
 	for {
@@ -898,7 +899,7 @@ func hydfsAppendWorker(leaderAddr, destFile string, appendChan chan string, stop
 func syncCheckpointToHyDFS(leaderAddr, stateFile, tupleID string, taskPort int) {
 	conn, err := net.DialTimeout("tcp", leaderAddr, 2*time.Second)
 	if err != nil {
-		log.Printf("⚠️  [SYNC-CHECKPOINT] Failed to connect to %s: %v", leaderAddr, err)
+		log.Printf("[SYNC-CHECKPOINT] Failed to connect to %s: %v", leaderAddr, err)
 		return
 	}
 	defer conn.Close()
@@ -919,8 +920,8 @@ func syncCheckpointToHyDFS(leaderAddr, stateFile, tupleID string, taskPort int) 
 	jsonData, _ := json.Marshal(msg)
 	conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 	if _, err := conn.Write(append(jsonData, '\n')); err != nil {
-		log.Printf("⚠️  [SYNC-CHECKPOINT] Failed to send: %v", err)
+		log.Printf("[SYNC-CHECKPOINT] Failed to send: %v", err)
 		return
 	}
-	log.Printf("📤 [SYNC-CHECKPOINT] Checkpointed %s to %s", tupleID, stateFile)
+	log.Printf("[SYNC-CHECKPOINT] Checkpointed %s to %s", tupleID, stateFile)
 }

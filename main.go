@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"github.com/SeanKraemer/distributed-stream-processor/internal/debuglog"
 	"io"
 
 	"log"
@@ -100,7 +101,7 @@ func forwardReplication(node *common.Node, hydfsFile string, content []byte, fil
 	currentNodeID := successors[chainIndex]
 	currentInfo, ok := infoMap[currentNodeID]
 	if !ok || currentInfo.State != membership.Alive {
-		log.Printf("❌ [FORWARD] Node %d not available, skipping", currentNodeID)
+		log.Printf("[FORWARD] Node %d not available, skipping", currentNodeID)
 		return
 	}
 
@@ -154,18 +155,18 @@ func forwardReplication(node *common.Node, hydfsFile string, content []byte, fil
 
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", currentInfo.Hostname, currentInfo.Port), 5*time.Second)
 	if err != nil {
-		log.Printf("❌ [FORWARD] Failed to connect to %s:%d: %v", currentInfo.Hostname, currentInfo.Port, err)
+		log.Printf("[FORWARD] Failed to connect to %s:%d: %v", currentInfo.Hostname, currentInfo.Port, err)
 		return
 	}
 	defer conn.Close()
 
 	conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	if _, err := conn.Write(append(jsonData, '\n')); err != nil {
-		log.Printf("❌ [FORWARD] Failed to send to %s:%d: %v", currentInfo.Hostname, currentInfo.Port, err)
+		log.Printf("[FORWARD] Failed to send to %s:%d: %v", currentInfo.Hostname, currentInfo.Port, err)
 		return
 	}
 
-	log.Printf("📤 [FORWARD] Sent replication to %s:%d (NodeID=%020d)", currentInfo.Hostname, currentInfo.Port, currentNodeID)
+	log.Printf("[FORWARD] Sent replication to %s:%d (NodeID=%020d)", currentInfo.Hostname, currentInfo.Port, currentNodeID)
 }
 
 // gracefulLeave performs a voluntary leave from the cluster
@@ -190,7 +191,7 @@ func gracefulLeave(node *common.Node) {
 		return
 	}
 
-	log.Printf("🚪 Performing graceful leave from cluster...")
+	log.Printf("Performing graceful leave from cluster...")
 
 	// Mark as inactive FIRST to stop gossip loop
 	node.ActiveMutex.Lock()
@@ -214,13 +215,13 @@ func gracefulLeave(node *common.Node) {
 		}
 
 		if _, err := membership.SendMessage(leaveMsg, info.Hostname, info.Port); err != nil {
-			log.Printf("⚠️  Failed to send Leave to %s:%d: %v", info.Hostname, info.Port, err)
+			log.Printf("Failed to send Leave to %s:%d: %v", info.Hostname, info.Port, err)
 		} else {
 			sent++
 		}
 	}
 
-	log.Printf("✅ Sent Leave message to %d members", sent)
+	log.Printf("Sent Leave message to %d members", sent)
 }
 
 // joinGroup performs an initial join using a Probe to the introducer (cfg.VMs[0]).
@@ -246,7 +247,7 @@ func joinGroup(node *common.Node, cfg *common.Config) {
 	// Retry join with exponential backoff
 	maxRetries := 5
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		log.Printf("🔄 joinGroup: attempt %d/%d to join via %s", attempt, maxRetries, introducerHost)
+		log.Printf("joinGroup: attempt %d/%d to join via %s", attempt, maxRetries, introducerHost)
 
 		// Send Probe to introducer
 		probe := membership.Message{
@@ -257,18 +258,18 @@ func joinGroup(node *common.Node, cfg *common.Config) {
 		// Send to introducer's UDP port (same cfg.NodePort)
 		p := cfg.NodePort
 		if _, err := membership.SendMessage(probe, introducerHost, p); err != nil {
-			log.Printf("❌ joinGroup: send probe to %s:%d failed: %v", introducerHost, p, err)
+			log.Printf("joinGroup: send probe to %s:%d failed: %v", introducerHost, p, err)
 			if attempt < maxRetries {
 				backoff := time.Duration(attempt) * time.Second
-				log.Printf("   Retrying in %v...", backoff)
+				log.Printf("Retrying in %v...", backoff)
 				time.Sleep(backoff)
 				continue
 			}
-			log.Printf("❌ joinGroup: all send attempts failed")
+			log.Printf("joinGroup: all send attempts failed")
 			return
 		}
 
-		log.Printf("✅ joinGroup: Probe sent to introducer %s:%d", introducerHost, p)
+		log.Printf("joinGroup: Probe sent to introducer %s:%d", introducerHost, p)
 
 		// Wait for the gossip loop to merge the membership info from the introducer's response
 		// The introducer should respond via gossip, so we just wait and check
@@ -277,18 +278,18 @@ func joinGroup(node *common.Node, cfg *common.Config) {
 		// Check if we've joined (membership should have more than just ourselves)
 		infoMap = node.Membership.GetInfoMap()
 		if len(infoMap) > 1 {
-			log.Printf("✅ joinGroup: Successfully joined! Membership size: %d", len(infoMap))
+			log.Printf("joinGroup: Successfully joined! Membership size: %d", len(infoMap))
 			return
 		}
 
 		if attempt < maxRetries {
 			backoff := time.Duration(attempt) * time.Second
-			log.Printf("⚠️  joinGroup: Not yet joined (membership size: %d), retrying in %v...", len(infoMap), backoff)
+			log.Printf("joinGroup: Not yet joined (membership size: %d), retrying in %v...", len(infoMap), backoff)
 			time.Sleep(backoff)
 		}
 	}
 
-	log.Printf("⚠️  joinGroup: Join attempts completed. Membership size: %d. Will rely on gossip convergence.", len(node.Membership.GetInfoMap()))
+	log.Printf("joinGroup: Join attempts completed. Membership size: %d. Will rely on gossip convergence.", len(node.Membership.GetInfoMap()))
 }
 
 // checkAndRereplicate checks all locally stored files for under-replication
@@ -297,21 +298,21 @@ func checkAndRereplicate(node *common.Node) {
 	// Scan local storage for files
 	entries, err := os.ReadDir(fileops.StorageRoot)
 	if err != nil {
-		log.Printf("❌ [REREPLICATE] Failed to read storage directory: %v", err)
+		log.Printf("[REREPLICATE] Failed to read storage directory: %v", err)
 		return
 	}
 
 	infoMap := node.Membership.GetInfoMap()
 
-	log.Printf("🔍 [REREPLICATE] Starting re-replication scan after membership change (alive nodes: %d)", len(infoMap))
-	log.Printf("🔍 [REREPLICATE] Found %d entries in storage directory: %s", len(entries), fileops.StorageRoot)
+	log.Printf("[REREPLICATE] Starting re-replication scan after membership change (alive nodes: %d)", len(infoMap))
+	log.Printf("[REREPLICATE] Found %d entries in storage directory: %s", len(entries), fileops.StorageRoot)
 
 	filesScanned := 0
 	for _, entry := range entries {
-		log.Printf("🔍 [REREPLICATE] Checking entry: %s (isDir=%v)", entry.Name(), entry.IsDir())
+		log.Printf("[REREPLICATE] Checking entry: %s (isDir=%v)", entry.Name(), entry.IsDir())
 
 		if !entry.IsDir() {
-			log.Printf("  ⏭️  Skipping non-directory: %s", entry.Name())
+			log.Printf("Skipping non-directory: %s", entry.Name())
 			continue
 		}
 
@@ -319,13 +320,13 @@ func checkAndRereplicate(node *common.Node) {
 		metadataPath := filepath.Join(fileops.StorageRoot, entry.Name(), "_metadata.json")
 		data, err := os.ReadFile(metadataPath)
 		if err != nil {
-			log.Printf("  ⚠️  Failed to read metadata for %s: %v", entry.Name(), err)
+			log.Printf("Failed to read metadata for %s: %v", entry.Name(), err)
 			continue
 		}
 
 		var metadata storage.FileMetadata
 		if err := json.Unmarshal(data, &metadata); err != nil {
-			log.Printf("  ⚠️  Failed to parse metadata for %s: %v", entry.Name(), err)
+			log.Printf("Failed to parse metadata for %s: %v", entry.Name(), err)
 			continue
 		}
 
@@ -333,7 +334,7 @@ func checkAndRereplicate(node *common.Node) {
 		fileID := metadata.FileID
 		filesScanned++
 
-		log.Printf("🔍 [REREPLICATE] Scanning file: %s (ID=%020d)", hydfsFile, fileID)
+		log.Printf("[REREPLICATE] Scanning file: %s (ID=%020d)", hydfsFile, fileID)
 
 		// Calculate where this file SHOULD be replicated (based on current membership)
 		expectedSuccessors := hashing.GetSuccessors(fileID, infoMap, hashing.NumReplicas)
@@ -372,27 +373,27 @@ func checkAndRereplicate(node *common.Node) {
 			}
 		}
 
-		log.Printf("  Expected successors for %s: %v", hydfsFile, expectedSuccessors)
-		log.Printf("  This node is expected replica: %v, Is primary: %v", isExpectedReplica, isPrimary)
-		log.Printf("  Alive replicas: %d/%d", aliveReplicas, hashing.NumReplicas)
+		log.Printf("Expected successors for %s: %v", hydfsFile, expectedSuccessors)
+		log.Printf("This node is expected replica: %v, Is primary: %v", isExpectedReplica, isPrimary)
+		log.Printf("Alive replicas: %d/%d", aliveReplicas, hashing.NumReplicas)
 
 		// Only proceed if this node is an expected replica
 		if !isExpectedReplica {
-			log.Printf("  ⏭️  Skipping - this node is NOT an expected replica")
+			log.Printf("Skipping - this node is NOT an expected replica")
 			continue
 		}
 
 		// If this node is the primary, always check if re-replication is needed
 		// (We can't reliably know which remote nodes have the file without querying them)
 		if isPrimary {
-			log.Printf("🔄 [REREPLICATE] Primary replica checking file %s (ID=%020d): %d/%d expected nodes alive",
+			log.Printf("[REREPLICATE] Primary replica checking file %s (ID=%020d): %d/%d expected nodes alive",
 				hydfsFile, fileID, aliveReplicas, hashing.NumReplicas)
-			log.Printf("    Primary will send to all expected successors (they will deduplicate if already stored)")
+			log.Printf("Primary will send to all expected successors (they will deduplicate if already stored)")
 
 			// Read the file content
 			content, err := globalBlockStore.ReadFile(hydfsFile)
 			if err != nil {
-				log.Printf("❌ [REREPLICATE] Failed to read %s: %v", hydfsFile, err)
+				log.Printf("[REREPLICATE] Failed to read %s: %v", hydfsFile, err)
 				continue
 			}
 
@@ -425,25 +426,25 @@ func checkAndRereplicate(node *common.Node) {
 				jsonData, _ := json.Marshal(msg)
 				conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", targetInfo.Hostname, targetInfo.Port), 5*time.Second)
 				if err != nil {
-					log.Printf("⚠️  [REREPLICATE] Failed to connect to %s: %v", targetInfo.Hostname, err)
+					log.Printf("[REREPLICATE] Failed to connect to %s: %v", targetInfo.Hostname, err)
 					continue
 				}
 
 				conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 				if _, err := conn.Write(append(jsonData, '\n')); err != nil {
-					log.Printf("⚠️  [REREPLICATE] Failed to send to %s: %v", targetInfo.Hostname, err)
+					log.Printf("[REREPLICATE] Failed to send to %s: %v", targetInfo.Hostname, err)
 				} else {
-					log.Printf("✅ [REREPLICATE] Sent %s (%d bytes) to %s:%d (NodeID=%020d)",
+					log.Printf("[REREPLICATE] Sent %s (%d bytes) to %s:%d (NodeID=%020d)",
 						hydfsFile, len(content), targetInfo.Hostname, targetInfo.Port, targetNodeID)
 				}
 				conn.Close()
 			}
 		} else if !isPrimary {
-			log.Printf("  ⏭️  Not primary - skipping re-replication (primary will handle)")
+			log.Printf("Not primary - skipping re-replication (primary will handle)")
 		}
 	}
 
-	log.Printf("🔍 [REREPLICATE] Re-replication scan complete (scanned %d files)", filesScanned)
+	log.Printf("[REREPLICATE] Re-replication scan complete (scanned %d files)", filesScanned)
 }
 
 // startGossipLoop runs a combined loop that both gossips periodically and
@@ -520,7 +521,7 @@ func startGossipLoop(node *common.Node) {
 
 			// Increment our heartbeat counter
 			if err := node.Membership.Heartbeat(node.RingID, time.Now()); err != nil {
-				log.Printf("⚠️  Failed to heartbeat: %v", err)
+				log.Printf("Failed to heartbeat: %v", err)
 				continue
 			}
 
@@ -561,7 +562,7 @@ func startGossipLoop(node *common.Node) {
 			// Check if any failures were detected - if so, trigger re-replication scan
 			failureDetected := node.Membership.UpdateStateGossip(time.Now(), 5*time.Second, 5*time.Second, false)
 			if failureDetected {
-				log.Printf("🚨 [FAILURE] Node failure detected - triggering re-replication scan")
+				log.Printf("[FAILURE] Node failure detected - triggering re-replication scan")
 				go checkAndRereplicate(node)
 			}
 
@@ -574,7 +575,7 @@ func startGossipLoop(node *common.Node) {
 			switch msg.Type {
 			case membership.Probe:
 				// A node is trying to join - merge their info and send back our full membership
-				log.Printf("📥 Received Probe from %s:%d", msg.SenderInfo.Hostname, msg.SenderInfo.Port)
+				log.Printf("Received Probe from %s:%d", msg.SenderInfo.Hostname, msg.SenderInfo.Port)
 
 				// Before merging, check if there's an old incarnation with same hostname:port
 				// If found, remove it to prevent duplicate counting
@@ -595,7 +596,7 @@ func startGossipLoop(node *common.Node) {
 						oldID != newRingID {
 						// Found old incarnation - remove it
 						node.Membership.RemoveMember(oldID)
-						log.Printf("🗑️  Removed old incarnation (ID=%d, state=%v) for %s:%d before adding new incarnation (ID=%d)",
+						log.Printf("Removed old incarnation (ID=%d, state=%v) for %s:%d before adding new incarnation (ID=%d)",
 							oldID, oldInfo.State, oldInfo.Hostname, oldInfo.Port, newRingID)
 						break
 					}
@@ -615,9 +616,9 @@ func startGossipLoop(node *common.Node) {
 					InfoMap:    infoMap,
 				}
 				if _, err := membership.SendMessage(ack, msg.SenderInfo.Hostname, msg.SenderInfo.Port); err != nil {
-					log.Printf("❌ gossip: ack send failed to %s:%d: %v", msg.SenderInfo.Hostname, msg.SenderInfo.Port, err)
+					log.Printf("gossip: ack send failed to %s:%d: %v", msg.SenderInfo.Hostname, msg.SenderInfo.Port, err)
 				} else {
-					log.Printf("✅ Sent membership (%d members) to joining node %s:%d",
+					log.Printf("Sent membership (%d members) to joining node %s:%d",
 						len(infoMap), msg.SenderInfo.Hostname, msg.SenderInfo.Port)
 				}
 
@@ -633,7 +634,7 @@ func startGossipLoop(node *common.Node) {
 							oldInfo.State == membership.Failed {
 							// Found old failed incarnation - remove it
 							node.Membership.RemoveMember(oldID)
-							log.Printf("🗑️  Removed old incarnation (ID=%d) for %s:%d via gossip, replacing with new incarnation (ID=%d)",
+							log.Printf("Removed old incarnation (ID=%d) for %s:%d via gossip, replacing with new incarnation (ID=%d)",
 								oldID, oldInfo.Hostname, oldInfo.Port, newID)
 							break
 						}
@@ -643,11 +644,11 @@ func startGossipLoop(node *common.Node) {
 				// Merge gossip info
 				changed := node.Membership.Merge(msg.InfoMap, time.Now())
 				if changed {
-					log.Printf("🔄 Membership updated via gossip from %s:%d (now %d members)",
+					log.Printf("Membership updated via gossip from %s:%d (now %d members)",
 						msg.SenderInfo.Hostname, msg.SenderInfo.Port, len(node.Membership.GetInfoMap()))
 
 					// Trigger re-replication scan since membership changed (failures learned via gossip)
-					log.Printf("🚨 [GOSSIP] Membership changed - triggering re-replication scan")
+					log.Printf("[GOSSIP] Membership changed - triggering re-replication scan")
 					go checkAndRereplicate(node)
 				}
 				// Update self periodically
@@ -656,17 +657,17 @@ func startGossipLoop(node *common.Node) {
 
 			case membership.Leave:
 				// Handle voluntary leave - immediately mark as failed
-				log.Printf("👋 Received Leave message from %s:%d", msg.SenderInfo.Hostname, msg.SenderInfo.Port)
+				log.Printf("Received Leave message from %s:%d", msg.SenderInfo.Hostname, msg.SenderInfo.Port)
 
 				// Find the leaving node's ID and mark as failed
 				for id, info := range node.Membership.GetInfoMap() {
 					if info.Hostname == msg.SenderInfo.Hostname && info.Port == msg.SenderInfo.Port {
 						changed := node.Membership.UpdateStateSwim(time.Now(), id, membership.Failed, false)
-						log.Printf("✅ Marked %s:%d as Failed (voluntary leave)", info.Hostname, info.Port)
+						log.Printf("Marked %s:%d as Failed (voluntary leave)", info.Hostname, info.Port)
 
 						// Trigger re-replication scan since membership changed
 						if changed {
-							log.Printf("🚨 [LEAVE] Node left - triggering re-replication scan")
+							log.Printf("[LEAVE] Node left - triggering re-replication scan")
 							go checkAndRereplicate(node)
 						}
 						break
@@ -746,7 +747,7 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 		// Log received operation from other nodes
 		switch msg.Type {
 		case "operation_log":
-			log.Printf("🔔 [BROADCAST] VM %s executed: %s on file '%s' at %s",
+			log.Printf("[BROADCAST] VM %s executed: %s on file '%s' at %s",
 				msg.Sender,
 				strings.ToUpper(msg.Operation),
 				msg.Filename,
@@ -755,39 +756,39 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 			// Display additional data if present
 			if len(msg.Data) > 0 {
 				for k, v := range msg.Data {
-					log.Printf("    %s: %v", k, v)
+					log.Printf("%s: %v", k, v)
 				}
 			}
 
 		case "replicate_file":
 			// TASK 3: Handle pipelined replication
-			log.Printf("📥 [REPLICATE] Received file '%s' from %s", msg.Filename, msg.Sender)
+			log.Printf("[REPLICATE] Received file '%s' from %s", msg.Filename, msg.Sender)
 
 			// Debug: Log received message fields
-			log.Printf("🔍 [REPLICATE DEBUG] NextReplica=%s, AckTarget=%s, IsLastInChain=%v", msg.NextReplica, msg.AckTarget, msg.IsLastInChain)
+			debuglog.Debugf("[REPLICATE DEBUG] NextReplica=%s, AckTarget=%s, IsLastInChain=%v", msg.NextReplica, msg.AckTarget, msg.IsLastInChain)
 			chainIndexFloat, _ := msg.Data["chain_index"].(float64)
-			log.Printf("🔍 [REPLICATE DEBUG] chain_index=%.0f", chainIndexFloat)
+			debuglog.Debugf("[REPLICATE DEBUG] chain_index=%.0f", chainIndexFloat)
 			successorsRaw, _ := msg.Data["successors"].([]interface{})
-			log.Printf("🔍 [REPLICATE DEBUG] successors raw (len=%d): %v", len(successorsRaw), successorsRaw)
+			debuglog.Debugf("[REPLICATE DEBUG] successors raw (len=%d): %v", len(successorsRaw), successorsRaw)
 
 			// Extract data from message
 			fileIDFloat, ok := msg.Data["file_id"].(float64)
 			if !ok {
-				log.Printf("❌ [REPLICATE] Invalid file_id in message")
+				log.Printf("[REPLICATE] Invalid file_id in message")
 				continue
 			}
 			fileID := uint64(fileIDFloat)
 
 			contentStr, ok := msg.Data["content"].(string)
 			if !ok {
-				log.Printf("❌ [REPLICATE] Invalid content in message")
+				log.Printf("[REPLICATE] Invalid content in message")
 				continue
 			}
 			content := []byte(contentStr)
 
 			createdAtFloat, ok := msg.Data["created_at"].(float64)
 			if !ok {
-				log.Printf("❌ [REPLICATE] Invalid created_at in message")
+				log.Printf("[REPLICATE] Invalid created_at in message")
 				continue
 			}
 			createdAt := int64(createdAtFloat)
@@ -798,7 +799,7 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 
 			// Store using BlockStore
 			if err := globalBlockStore.CreateFile(msg.Filename, content, fileID, primaryNodeID, clientID); err != nil {
-				log.Printf("❌ [REPLICATE] Failed to store %s: %v", msg.Filename, err)
+				log.Printf("[REPLICATE] Failed to store %s: %v", msg.Filename, err)
 				continue
 			}
 
@@ -813,7 +814,7 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 			}
 			node.FileStoreMutex.Unlock()
 
-			log.Printf("✅ [REPLICATE] Stored %s (%d bytes)", msg.Filename, len(content))
+			log.Printf("[REPLICATE] Stored %s (%d bytes)", msg.Filename, len(content))
 
 			// Store the AckTarget for later use when we receive ACK from successor
 			if msg.AckTarget != "" && !msg.IsLastInChain {
@@ -824,14 +825,14 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 
 			// TASK 3: Forward to next replica if not last in chain
 			if msg.NextReplica != "" && !msg.IsLastInChain {
-				log.Printf("📤 [CHAIN] Forwarding replication to next replica: %s", msg.NextReplica)
+				log.Printf("[CHAIN] Forwarding replication to next replica: %s", msg.NextReplica)
 
 				// Forward the message to the next replica
 				parts := strings.Split(msg.NextReplica, ":")
 				if len(parts) == 2 {
 					forwardConn, err := net.DialTimeout("tcp", msg.NextReplica, 5*time.Second)
 					if err != nil {
-						log.Printf("❌ [CHAIN] Failed to connect to next replica %s: %v", msg.NextReplica, err)
+						log.Printf("[CHAIN] Failed to connect to next replica %s: %v", msg.NextReplica, err)
 					} else {
 						// Update the message for forwarding
 						chainIndexFloat, _ := msg.Data["chain_index"].(float64)
@@ -848,14 +849,14 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 								if err == nil {
 									successors[i] = nodeID
 								} else {
-									log.Printf("❌ [CHAIN DEBUG] Failed to parse NodeID string '%s': %v", nodeIDStr, err)
+									debuglog.Debugf("[CHAIN DEBUG] Failed to parse NodeID string '%s': %v", nodeIDStr, err)
 								}
 							} else {
-								log.Printf("❌ [CHAIN DEBUG] Successor at index %d is not a string: %T", i, v)
+								debuglog.Debugf("[CHAIN DEBUG] Successor at index %d is not a string: %T", i, v)
 							}
 						}
 
-						log.Printf("🔍 [CHAIN DEBUG] Current chain_index=%d, successors=%v, len=%d", chainIndex, successors, len(successors))
+						debuglog.Debugf("[CHAIN DEBUG] Current chain_index=%d, successors=%v, len=%d", chainIndex, successors, len(successors))
 
 						// Determine the next-next replica
 						var nextNextReplica string
@@ -867,12 +868,12 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 							nextNextInfo, exists := infoMap[nextNodeID]
 							if exists {
 								nextNextReplica = fmt.Sprintf("%s:%d", nextNextInfo.Hostname, nextNextInfo.Port)
-								log.Printf("🔍 [CHAIN DEBUG] Next-next replica: NodeID=%d, Address=%s", nextNodeID, nextNextReplica)
+								debuglog.Debugf("[CHAIN DEBUG] Next-next replica: NodeID=%d, Address=%s", nextNodeID, nextNextReplica)
 							} else {
-								log.Printf("❌ [CHAIN DEBUG] Next-next NodeID=%d not found in infoMap!", nextNodeID)
+								debuglog.Debugf("[CHAIN DEBUG] Next-next NodeID=%d not found in infoMap!", nextNodeID)
 							}
 						} else {
-							log.Printf("🔍 [CHAIN DEBUG] This is the last node (chain_index=%d >= len-1=%d)", chainIndex, len(successors)-1)
+							debuglog.Debugf("[CHAIN DEBUG] This is the last node (chain_index=%d >= len-1=%d)", chainIndex, len(successors)-1)
 						}
 
 						forwardMsg := NodeMessage{
@@ -893,7 +894,7 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 						forwardConn.Write(append(jsonData, '\n'))
 						forwardConn.Close()
 
-						log.Printf("📤 [CHAIN] Forwarded to %s (chain_index=%d, is_last=%v, next=%s)", msg.NextReplica, chainIndex, isNextLast, nextNextReplica)
+						log.Printf("[CHAIN] Forwarded to %s (chain_index=%d, is_last=%v, next=%s)", msg.NextReplica, chainIndex, isNextLast, nextNextReplica)
 					}
 				}
 			}
@@ -901,11 +902,11 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 			// TASK 2 FIX: Only send ACK if this is the LAST node in chain
 			// Non-last nodes will send ACK when they receive ACK from their successor
 			if msg.IsLastInChain && msg.AckTarget != "" {
-				log.Printf("📮 [ACK] Last node in chain, sending acknowledgment to %s", msg.AckTarget)
+				log.Printf("[ACK] Last node in chain, sending acknowledgment to %s", msg.AckTarget)
 
 				ackConn, err := net.DialTimeout("tcp", msg.AckTarget, 5*time.Second)
 				if err != nil {
-					log.Printf("❌ [ACK] Failed to connect to ACK target %s: %v", msg.AckTarget, err)
+					log.Printf("[ACK] Failed to connect to ACK target %s: %v", msg.AckTarget, err)
 				} else {
 					ackMsg := NodeMessage{
 						Type:      "replication_ack",
@@ -923,13 +924,13 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 					ackConn.Write(append(jsonData, '\n'))
 					ackConn.Close()
 
-					log.Printf("✅ [ACK] Sent acknowledgment to %s", msg.AckTarget)
+					log.Printf("[ACK] Sent acknowledgment to %s", msg.AckTarget)
 				}
 			}
 
 		case "replication_ack":
 			// Received ACK from next node in chain - forward it back up the chain
-			log.Printf("📬 [ACK] Received acknowledgment for '%s' from %s", msg.Filename, msg.Sender)
+			log.Printf("[ACK] Received acknowledgment for '%s' from %s", msg.Filename, msg.Sender)
 
 			// Retrieve the stored AckTarget for this file
 			pendingAckTargetsMutex.Lock()
@@ -940,11 +941,11 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 			pendingAckTargetsMutex.Unlock()
 
 			if exists && ackTarget != "" {
-				log.Printf("📮 [ACK] Forwarding acknowledgment to %s", ackTarget)
+				log.Printf("[ACK] Forwarding acknowledgment to %s", ackTarget)
 
 				ackConn, err := net.DialTimeout("tcp", ackTarget, 5*time.Second)
 				if err != nil {
-					log.Printf("❌ [ACK] Failed to connect to ACK target %s: %v", ackTarget, err)
+					log.Printf("[ACK] Failed to connect to ACK target %s: %v", ackTarget, err)
 				} else {
 					// Forward the ACK message
 					forwardAckMsg := NodeMessage{
@@ -963,13 +964,13 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 					ackConn.Write(append(jsonData, '\n'))
 					ackConn.Close()
 
-					log.Printf("✅ [ACK] Forwarded acknowledgment to %s", ackTarget)
+					log.Printf("[ACK] Forwarded acknowledgment to %s", ackTarget)
 				}
 			}
 
 		case "get_file":
 			// Handle GET request from client
-			log.Printf("📥 [GET] Received GET request for '%s' from %s", msg.Filename, msg.Sender)
+			log.Printf("[GET] Received GET request for '%s' from %s", msg.Filename, msg.Sender)
 
 			// First try to read the file locally
 			content, err := globalBlockStore.ReadFile(msg.Filename)
@@ -978,7 +979,7 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 
 			if err != nil {
 				// File not found locally - try to forward to primary replica
-				log.Printf("ℹ️  [GET] File '%s' not found locally, checking if we should forward to primary", msg.Filename)
+				log.Printf("[GET] File '%s' not found locally, checking if we should forward to primary", msg.Filename)
 
 				// Calculate file hash to find correct replicas
 				fileID := hashing.HashString(msg.Filename)
@@ -993,7 +994,7 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 					primaryID := replicas[0]
 					primaryInfo, ok := infoMap[primaryID]
 					if ok && primaryInfo.State == membership.Alive {
-						log.Printf("📤 [GET] Forwarding GET for '%s' to primary %s", msg.Filename, primaryInfo.Hostname)
+						log.Printf("[GET] Forwarding GET for '%s' to primary %s", msg.Filename, primaryInfo.Hostname)
 
 						forwardMsg := NodeMessage{
 							Type:      "get_file",
@@ -1015,19 +1016,19 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 								respLine, readErr := reader.ReadString('\n')
 								if readErr == nil {
 									// Forward the response directly to the original client
-									log.Printf("✅ [GET] Forwarding response from primary for '%s'", msg.Filename)
+									log.Printf("[GET] Forwarding response from primary for '%s'", msg.Filename)
 									conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 									conn.Write([]byte(respLine))
 									break // Response sent, we're done
 								}
 							}
 						}
-						log.Printf("⚠️  [GET] Failed to forward to primary, returning error")
+						log.Printf("[GET] Failed to forward to primary, returning error")
 					}
 				}
 
 				// Either we're the primary and file doesn't exist, or forwarding failed
-				log.Printf("❌ [GET] File '%s' not found: %v", msg.Filename, err)
+				log.Printf("[GET] File '%s' not found: %v", msg.Filename, err)
 				response = NodeMessage{
 					Type:      "error",
 					Sender:    node.Membership.GetInfoMap()[node.RingID].Hostname,
@@ -1039,7 +1040,7 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 					Timestamp: time.Now().UnixNano(),
 				}
 			} else {
-				log.Printf("✅ [GET] Successfully read file '%s' (%d bytes)", msg.Filename, len(content))
+				log.Printf("[GET] Successfully read file '%s' (%d bytes)", msg.Filename, len(content))
 				response = NodeMessage{
 					Type:      "get_file_response",
 					Sender:    node.Membership.GetInfoMap()[node.RingID].Hostname,
@@ -1056,23 +1057,23 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 			jsonData, _ := json.Marshal(response)
 			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			if _, err := conn.Write(append(jsonData, '\n')); err != nil {
-				log.Printf("❌ [GET] Failed to send response: %v", err)
+				log.Printf("[GET] Failed to send response: %v", err)
 			}
 
 		case "rereplicate_file":
 			// Handle re-replication request after failure
-			log.Printf("🔄 [REREPLICATE] Received re-replication request for '%s' from %s", msg.Filename, msg.Sender)
+			log.Printf("[REREPLICATE] Received re-replication request for '%s' from %s", msg.Filename, msg.Sender)
 
 			// Extract file data
 			content, ok := msg.Data["content"].(string)
 			if !ok {
-				log.Printf("❌ [REREPLICATE] Invalid content for %s", msg.Filename)
+				log.Printf("[REREPLICATE] Invalid content for %s", msg.Filename)
 				break
 			}
 
 			fileID, ok := msg.Data["file_id"].(float64)
 			if !ok {
-				log.Printf("❌ [REREPLICATE] Invalid file_id for %s", msg.Filename)
+				log.Printf("[REREPLICATE] Invalid file_id for %s", msg.Filename)
 				break
 			}
 
@@ -1098,29 +1099,29 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 			if err != nil {
 				// Check if it's a "file already exists" error - this is expected and safe
 				if err.Error() == fmt.Sprintf("file already exists: %s", msg.Filename) {
-					log.Printf("ℹ️  [REREPLICATE] File '%s' already exists locally (duplicate re-replication request ignored)", msg.Filename)
+					log.Printf("[REREPLICATE] File '%s' already exists locally (duplicate re-replication request ignored)", msg.Filename)
 				} else {
-					log.Printf("❌ [REREPLICATE] Failed to store file '%s': %v", msg.Filename, err)
+					log.Printf("[REREPLICATE] Failed to store file '%s': %v", msg.Filename, err)
 				}
 			} else {
-				log.Printf("✅ [REREPLICATE] Successfully stored file '%s' (%d bytes)", msg.Filename, len(content))
+				log.Printf("[REREPLICATE] Successfully stored file '%s' (%d bytes)", msg.Filename, len(content))
 			}
 
 		case "append_file":
 			// Handle append request - append locally if we're a replica, or forward to primary
 			// Per MP3 specs: eventual consistency - merge will sync replicas later
-			log.Printf("📥 [APPEND] Received append request for '%s' from %s", msg.Filename, msg.Sender)
+			log.Printf("[APPEND] Received append request for '%s' from %s", msg.Filename, msg.Sender)
 
 			// Extract file data
 			content, ok := msg.Data["content"].(string)
 			if !ok {
-				log.Printf("❌ [APPEND] Invalid content for %s", msg.Filename)
+				log.Printf("[APPEND] Invalid content for %s", msg.Filename)
 				break
 			}
 
 			clientID, ok := msg.Data["client_id"].(string)
 			if !ok {
-				log.Printf("❌ [APPEND] Invalid client_id for %s", msg.Filename)
+				log.Printf("[APPEND] Invalid client_id for %s", msg.Filename)
 				break
 			}
 
@@ -1130,7 +1131,7 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 			replicas := hashing.GetSuccessors(fileID, infoMap, hashing.NumReplicas)
 
 			if len(replicas) == 0 {
-				log.Printf("❌ [APPEND] No replicas found for '%s'", msg.Filename)
+				log.Printf("[APPEND] No replicas found for '%s'", msg.Filename)
 				break
 			}
 
@@ -1147,9 +1148,9 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 				// This node is a replica - append locally only (merge will sync to other replicas)
 				err := globalBlockStore.AppendFile(msg.Filename, []byte(content), clientID)
 				if err != nil {
-					log.Printf("❌ [APPEND] Failed to append to file '%s': %v", msg.Filename, err)
+					log.Printf("[APPEND] Failed to append to file '%s': %v", msg.Filename, err)
 				} else {
-					log.Printf("✅ [APPEND] Successfully appended to file '%s' (%d bytes from client %s)",
+					log.Printf("[APPEND] Successfully appended to file '%s' (%d bytes from client %s)",
 						msg.Filename, len(content), clientID)
 				}
 			} else {
@@ -1157,11 +1158,11 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 				primaryID := replicas[0]
 				primaryInfo, ok := infoMap[primaryID]
 				if !ok || primaryInfo.State != membership.Alive {
-					log.Printf("❌ [APPEND] Primary replica not available for '%s'", msg.Filename)
+					log.Printf("[APPEND] Primary replica not available for '%s'", msg.Filename)
 					break
 				}
 
-				log.Printf("📤 [APPEND] Forwarding append for '%s' to primary %s", msg.Filename, primaryInfo.Hostname)
+				log.Printf("[APPEND] Forwarding append for '%s' to primary %s", msg.Filename, primaryInfo.Hostname)
 
 				forwardMsg := NodeMessage{
 					Type:      "append_file",
@@ -1179,22 +1180,22 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 				jsonData, _ := json.Marshal(forwardMsg)
 				fwdConn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", primaryInfo.Hostname, primaryInfo.Port), 5*time.Second)
 				if err != nil {
-					log.Printf("⚠️  [APPEND] Failed to forward to primary %s: %v", primaryInfo.Hostname, err)
+					log.Printf("[APPEND] Failed to forward to primary %s: %v", primaryInfo.Hostname, err)
 					break
 				}
 
 				fwdConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 				if _, err := fwdConn.Write(append(jsonData, '\n')); err != nil {
-					log.Printf("⚠️  [APPEND] Failed to send forward to primary %s: %v", primaryInfo.Hostname, err)
+					log.Printf("[APPEND] Failed to send forward to primary %s: %v", primaryInfo.Hostname, err)
 				} else {
-					log.Printf("✅ [APPEND] Forwarded to primary %s:%d", primaryInfo.Hostname, primaryInfo.Port)
+					log.Printf("[APPEND] Forwarded to primary %s:%d", primaryInfo.Hostname, primaryInfo.Port)
 				}
 				fwdConn.Close()
 			}
 
 		case "merge_request":
 			// Handle merge request from non-primary replica
-			log.Printf("📥 [MERGE] Received merge request for '%s' from %s", msg.Filename, msg.Sender)
+			log.Printf("[MERGE] Received merge request for '%s' from %s", msg.Filename, msg.Sender)
 
 			// Trigger merge operation (this node should be the primary)
 			go func() {
@@ -1208,12 +1209,12 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 
 		case "merge_collect":
 			// Handle block collection request for merge
-			log.Printf("📥 [MERGE] Received block collection request for '%s' from %s", msg.Filename, msg.Sender)
+			log.Printf("[MERGE] Received block collection request for '%s' from %s", msg.Filename, msg.Sender)
 
 			// Read all blocks from local storage
 			blocks, err := globalBlockStore.GetAllBlocks(msg.Filename)
 			if err != nil {
-				log.Printf("❌ [MERGE] Failed to read blocks for '%s': %v", msg.Filename, err)
+				log.Printf("[MERGE] Failed to read blocks for '%s': %v", msg.Filename, err)
 				// Send empty response
 				response := map[string]interface{}{"blocks": []storage.BlockInfo{}}
 				jsonData, _ := json.Marshal(response)
@@ -1221,7 +1222,7 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 				break
 			}
 
-			log.Printf("📤 [MERGE] Sending %d blocks for '%s' to %s", len(blocks), msg.Filename, msg.Sender)
+			log.Printf("[MERGE] Sending %d blocks for '%s' to %s", len(blocks), msg.Filename, msg.Sender)
 
 			// Send blocks back
 			response := map[string]interface{}{"blocks": blocks}
@@ -1230,11 +1231,11 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 
 		case "merge_update":
 			// Handle merged file update from primary
-			log.Printf("📥 [MERGE] Received merged file update for '%s' from %s", msg.Filename, msg.Sender)
+			log.Printf("[MERGE] Received merged file update for '%s' from %s", msg.Filename, msg.Sender)
 
 			content, ok := msg.Data["content"].(string)
 			if !ok {
-				log.Printf("❌ [MERGE] Invalid content for %s", msg.Filename)
+				log.Printf("[MERGE] Invalid content for %s", msg.Filename)
 				break
 			}
 
@@ -1258,9 +1259,9 @@ func handleNodeConnection(node *common.Node, conn net.Conn) {
 
 			err := globalBlockStore.CreateFile(msg.Filename, []byte(content), fileID, primaryNodeID, clientID)
 			if err != nil {
-				log.Printf("❌ [MERGE] Failed to store merged file '%s': %v", msg.Filename, err)
+				log.Printf("[MERGE] Failed to store merged file '%s': %v", msg.Filename, err)
 			} else {
-				log.Printf("✅ [MERGE] Successfully stored merged file '%s' (%d bytes)",
+				log.Printf("[MERGE] Successfully stored merged file '%s' (%d bytes)",
 					msg.Filename, len(content))
 			}
 
@@ -1315,7 +1316,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 		case "list_mem":
 			// Return a compact table of current membership
 			table := node.Membership.Table()
-			log.Printf("✅ [CMD] list_mem: %s -> list_mem (len=%d)", remote, len(strings.Split(table, "\n"))-1)
+			log.Printf("[CMD] list_mem: %s -> list_mem (len=%d)", remote, len(strings.Split(table, "\n"))-1)
 			writeResp(table)
 
 		case "list_mem_ids":
@@ -1353,7 +1354,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			}
 			log.Printf("════════════════════════════════════════════════════════════")
 
-			log.Printf("✅ [CMD] list_mem_ids: returned %d members", len(entries))
+			log.Printf("[CMD] list_mem_ids: returned %d members", len(entries))
 			writeResp(result.String())
 
 		case "list_self":
@@ -1370,7 +1371,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			}
 			msg := fmt.Sprintf("RingID=%020d Hostname=%s Port=%d State=%s",
 				node.RingID, self.Hostname, self.Port, stateStr)
-			log.Printf("✅ [CMD] list_self: %s", msg)
+			log.Printf("[CMD] list_self: %s", msg)
 			writeResp(msg)
 
 		case "join":
@@ -1381,13 +1382,13 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 				continue
 			}
 			go joinGroup(node, cfg)
-			log.Printf("✅ [CMD] join: probe sent to introducer")
+			log.Printf("[CMD] join: probe sent to introducer")
 			writeResp("OK join initiated")
 
 		case "leave":
 			// Voluntary leave: remove self from local membership and log
 			node.Membership.UpdateStateSwim(time.Now(), node.RingID, membership.Failed, false)
-			log.Printf("✅ [CMD] leave: marked self as failed")
+			log.Printf("[CMD] leave: marked self as failed")
 			writeResp("OK left group")
 
 		// MP3 file operations
@@ -1399,7 +1400,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			localFile := parts[1]
 			hydfsFile := parts[2]
 
-			log.Printf("🚀 [CREATE] %s -> %s (from %s)", localFile, hydfsFile, remote)
+			log.Printf("[CREATE] %s -> %s (from %s)", localFile, hydfsFile, remote)
 
 			// Check if file already exists in local store
 			node.FileStoreMutex.RLock()
@@ -1407,7 +1408,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			node.FileStoreMutex.RUnlock()
 
 			if localExists {
-				log.Printf("❌ [CREATE] File %s already exists in HyDFS", hydfsFile)
+				log.Printf("[CREATE] File %s already exists in HyDFS", hydfsFile)
 				writeResp(fmt.Sprintf("ERR file %s already exists", hydfsFile))
 				continue
 			}
@@ -1415,7 +1416,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			// Read local file
 			content, err := os.ReadFile(localFile)
 			if err != nil {
-				log.Printf("❌ [CREATE] Failed to read %s: %v", localFile, err)
+				log.Printf("[CREATE] Failed to read %s: %v", localFile, err)
 				writeResp(fmt.Sprintf("ERR failed to read local file: %v", err))
 				continue
 			}
@@ -1428,7 +1429,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			successors := hashing.GetSuccessors(fileID, infoMap, hashing.NumReplicas)
 
 			if len(successors) == 0 {
-				log.Printf("❌ [CREATE] No alive nodes to replicate to")
+				log.Printf("[CREATE] No alive nodes to replicate to")
 				writeResp("ERR no alive nodes for replication")
 				continue
 			}
@@ -1436,13 +1437,13 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			// DO NOT SORT - GetSuccessors already returns them in correct ring order
 			// The first element is the primary replica
 
-			log.Printf("📍 [CREATE] File %s (ID=%020d) will replicate to %d nodes",
+			log.Printf("[CREATE] File %s (ID=%020d) will replicate to %d nodes",
 				hydfsFile, fileID, len(successors))
 
 			// Primary Replica is the first successor (already in ring order)
 			primaryNodeID := successors[0]
 			primaryInfo := infoMap[primaryNodeID]
-			log.Printf("✅ [CREATE] Primary Replica: %s:%d (NodeID=%020d)",
+			log.Printf("[CREATE] Primary Replica: %s:%d (NodeID=%020d)",
 				primaryInfo.Hostname, primaryInfo.Port, primaryNodeID)
 
 			// TASK 3: Use pipelined replication
@@ -1461,7 +1462,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			if node.RingID == primaryNodeID {
 				// Coordinator is the primary - store locally using BlockStore
 				if err := globalBlockStore.CreateFile(hydfsFile, content, fileID, primaryNodeID, clientID); err != nil {
-					log.Printf("❌ [CREATE] Failed to store locally: %v", err)
+					log.Printf("[CREATE] Failed to store locally: %v", err)
 					writeResp(fmt.Sprintf("ERR failed to store: %v", err))
 					continue
 				}
@@ -1477,14 +1478,14 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 				}
 				node.FileStoreMutex.Unlock()
 
-				log.Printf("✅ [CREATE] Stored %s locally as PRIMARY (%d bytes)", hydfsFile, len(content))
+				log.Printf("[CREATE] Stored %s locally as PRIMARY (%d bytes)", hydfsFile, len(content))
 
 				// Forward to next replica if exists
 				if nextReplica != "" {
 					go forwardReplication(node, hydfsFile, content, fileID, primaryNodeID, clientID, successors, 1, infoMap)
 				} else {
 					// No more replicas, we're done
-					log.Printf("🎉 [CREATE] File %s created (single replica: coordinator is primary)", hydfsFile)
+					log.Printf("[CREATE] File %s created (single replica: coordinator is primary)", hydfsFile)
 					writeResp(fmt.Sprintf("OK created %s", hydfsFile))
 				}
 			} else {
@@ -1522,7 +1523,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 				// Send to primary
 				conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", primaryInfo.Hostname, primaryInfo.Port), 5*time.Second)
 				if err != nil {
-					log.Printf("❌ [CREATE] Failed to connect to primary %s:%d: %v", primaryInfo.Hostname, primaryInfo.Port, err)
+					log.Printf("[CREATE] Failed to connect to primary %s:%d: %v", primaryInfo.Hostname, primaryInfo.Port, err)
 					writeResp(fmt.Sprintf("ERR failed to connect to primary: %v", err))
 					continue
 				}
@@ -1530,7 +1531,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 				conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 				if _, err := conn.Write(append(jsonData, '\n')); err != nil {
 					conn.Close()
-					log.Printf("❌ [CREATE] Failed to send to primary %s:%d: %v", primaryInfo.Hostname, primaryInfo.Port, err)
+					log.Printf("[CREATE] Failed to send to primary %s:%d: %v", primaryInfo.Hostname, primaryInfo.Port, err)
 					writeResp(fmt.Sprintf("ERR failed to send to primary: %v", err))
 					continue
 				}
@@ -1538,7 +1539,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 				// Close the send connection - ACK will come via handleNodeConnection
 				conn.Close()
 
-				log.Printf("📤 [CREATE] Replication message sent to primary, waiting for final ACK...")
+				log.Printf("[CREATE] Replication message sent to primary, waiting for final ACK...")
 
 				// Known limitation: the final ACK arrives asynchronously via
 				// handleNodeConnection, and there is no per-request ACK registry to
@@ -1547,15 +1548,15 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 				// per-request would mean threading a channel registry through the
 				// node-connection handler. See README "Design notes & limitations".
 				time.Sleep(3 * time.Second)
-				log.Printf("🎉 [CREATE] File %s created and replicated via pipelined replication", hydfsFile)
+				log.Printf("[CREATE] File %s created and replicated via pipelined replication", hydfsFile)
 
 				// Log all replicas in ring order
 				for i, nodeID := range successors {
 					info := infoMap[nodeID]
 					if i == 0 {
-						log.Printf("✅ [CREATE] Replicated to %s:%d (NodeID=%020d) [PRIMARY]", info.Hostname, info.Port, nodeID)
+						log.Printf("[CREATE] Replicated to %s:%d (NodeID=%020d) [PRIMARY]", info.Hostname, info.Port, nodeID)
 					} else {
-						log.Printf("✅ [CREATE] Replicated to %s:%d (NodeID=%020d)", info.Hostname, info.Port, nodeID)
+						log.Printf("[CREATE] Replicated to %s:%d (NodeID=%020d)", info.Hostname, info.Port, nodeID)
 					}
 				}
 
@@ -1570,7 +1571,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			hydfsFile := parts[1]
 			localFile := parts[2]
 
-			log.Printf("🚀 [GET] %s -> %s (from %s)", hydfsFile, localFile, remote)
+			log.Printf("[GET] %s -> %s (from %s)", hydfsFile, localFile, remote)
 
 			// Calculate file ID using consistent hashing (same as CREATE)
 			fileID := hashing.HashString(hydfsFile)
@@ -1580,7 +1581,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			successors := hashing.GetSuccessors(fileID, infoMap, hashing.NumReplicas)
 
 			if len(successors) == 0 {
-				log.Printf("❌ [GET] No alive replicas found for %s", hydfsFile)
+				log.Printf("[GET] No alive replicas found for %s", hydfsFile)
 				writeResp("ERR no replicas available")
 				continue
 			}
@@ -1592,12 +1593,12 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			primaryNodeID := successors[0]
 			primaryInfo, ok := infoMap[primaryNodeID]
 			if !ok || primaryInfo.State != membership.Alive {
-				log.Printf("❌ [GET] Primary replica for %s is not available", hydfsFile)
+				log.Printf("[GET] Primary replica for %s is not available", hydfsFile)
 				writeResp("ERR primary replica not available")
 				continue
 			}
 
-			log.Printf("📍 [GET] File %s (ID=%020d) -> Primary: %s:%d (NodeID=%020d)",
+			log.Printf("[GET] File %s (ID=%020d) -> Primary: %s:%d (NodeID=%020d)",
 				hydfsFile, fileID, primaryInfo.Hostname, primaryInfo.Port, primaryNodeID)
 
 			// Send GET request to primary
@@ -1616,7 +1617,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 
 			conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", primaryInfo.Hostname, primaryInfo.Port), 5*time.Second)
 			if err != nil {
-				log.Printf("❌ [GET] Failed to connect to primary %s:%d: %v", primaryInfo.Hostname, primaryInfo.Port, err)
+				log.Printf("[GET] Failed to connect to primary %s:%d: %v", primaryInfo.Hostname, primaryInfo.Port, err)
 				writeResp(fmt.Sprintf("ERR failed to connect to primary: %v", err))
 				continue
 			}
@@ -1624,7 +1625,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			if _, err := conn.Write(append(jsonData, '\n')); err != nil {
 				conn.Close()
-				log.Printf("❌ [GET] Failed to send GET request: %v", err)
+				log.Printf("[GET] Failed to send GET request: %v", err)
 				writeResp(fmt.Sprintf("ERR failed to send request: %v", err))
 				continue
 			}
@@ -1636,14 +1637,14 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			conn.Close()
 
 			if err != nil {
-				log.Printf("❌ [GET] Failed to receive response: %v", err)
+				log.Printf("[GET] Failed to receive response: %v", err)
 				writeResp(fmt.Sprintf("ERR failed to receive response: %v", err))
 				continue
 			}
 
 			var response NodeMessage
 			if err := json.Unmarshal([]byte(responseLine), &response); err != nil {
-				log.Printf("❌ [GET] Failed to parse response: %v", err)
+				log.Printf("[GET] Failed to parse response: %v", err)
 				writeResp(fmt.Sprintf("ERR failed to parse response: %v", err))
 				continue
 			}
@@ -1652,7 +1653,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 				// Extract file content from response
 				contentStr, ok := response.Data["content"].(string)
 				if !ok {
-					log.Printf("❌ [GET] Invalid content in response")
+					log.Printf("[GET] Invalid content in response")
 					writeResp("ERR invalid response content")
 					continue
 				}
@@ -1666,7 +1667,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 					localPath = localFile
 					// Ensure parent directory exists
 					if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
-						log.Printf("❌ [GET] Failed to create directory: %v", err)
+						log.Printf("[GET] Failed to create directory: %v", err)
 						writeResp(fmt.Sprintf("ERR failed to create directory: %v", err))
 						continue
 					}
@@ -1674,7 +1675,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 					// Relative path - use hydfs_local directory
 					localDir := "./hydfs_local"
 					if err := os.MkdirAll(localDir, 0755); err != nil {
-						log.Printf("❌ [GET] Failed to create local directory: %v", err)
+						log.Printf("[GET] Failed to create local directory: %v", err)
 						writeResp(fmt.Sprintf("ERR failed to create directory: %v", err))
 						continue
 					}
@@ -1682,19 +1683,19 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 				}
 
 				if err := os.WriteFile(localPath, content, 0644); err != nil {
-					log.Printf("❌ [GET] Failed to write local file: %v", err)
+					log.Printf("[GET] Failed to write local file: %v", err)
 					writeResp(fmt.Sprintf("ERR failed to write file: %v", err))
 					continue
 				}
 
-				log.Printf("✅ [GET] Successfully retrieved %s (%d bytes) -> %s", hydfsFile, len(content), localPath)
+				log.Printf("[GET] Successfully retrieved %s (%d bytes) -> %s", hydfsFile, len(content), localPath)
 				writeResp(fmt.Sprintf("OK retrieved %s (%d bytes) to %s", hydfsFile, len(content), localPath))
 			} else if response.Type == "error" {
 				errorMsg, _ := response.Data["message"].(string)
-				log.Printf("❌ [GET] Error from primary: %s", errorMsg)
+				log.Printf("[GET] Error from primary: %s", errorMsg)
 				writeResp(fmt.Sprintf("ERR %s", errorMsg))
 			} else {
-				log.Printf("❌ [GET] Unexpected response type: %s", response.Type)
+				log.Printf("[GET] Unexpected response type: %s", response.Type)
 				writeResp("ERR unexpected response")
 			}
 
@@ -1706,7 +1707,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			localFile := parts[1]
 			hydfsFile := parts[2]
 
-			log.Printf("🚀 [APPEND] %s -> %s (from %s)", localFile, hydfsFile, remote)
+			log.Printf("[APPEND] %s -> %s (from %s)", localFile, hydfsFile, remote)
 
 			broadcastOperation(node, "append", hydfsFile, map[string]interface{}{
 				"localfile": localFile,
@@ -1724,7 +1725,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			}
 			hydfsFile := parts[1]
 
-			log.Printf("🚀 [MERGE] %s (from %s)", hydfsFile, remote)
+			log.Printf("[MERGE] %s (from %s)", hydfsFile, remote)
 
 			broadcastOperation(node, "merge", hydfsFile, map[string]interface{}{
 				"client": remote,
@@ -1741,7 +1742,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			}
 			hydfsFile := parts[1]
 
-			log.Printf("🚀 [LS] %s (from %s)", hydfsFile, remote)
+			log.Printf("[LS] %s (from %s)", hydfsFile, remote)
 
 			// Calculate file ID using consistent hashing
 			fileID := hashing.HashString(hydfsFile)
@@ -1751,7 +1752,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			successors := hashing.GetSuccessors(fileID, infoMap, hashing.NumReplicas)
 
 			if len(successors) == 0 {
-				log.Printf("❌ [LS] No replicas found for %s", hydfsFile)
+				log.Printf("[LS] No replicas found for %s", hydfsFile)
 				writeResp("ERR no replicas available")
 				continue
 			}
@@ -1779,11 +1780,11 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			}
 			result.WriteString("════════════════════════════════════════════════════════════\n")
 
-			log.Printf("✅ [LS] %s -> FileID=%020d, %d replicas", hydfsFile, fileID, len(successors))
+			log.Printf("[LS] %s -> FileID=%020d, %d replicas", hydfsFile, fileID, len(successors))
 			writeResp(result.String())
 
 		case "liststore":
-			log.Printf("🚀 [LISTSTORE] (from %s)", remote)
+			log.Printf("[LISTSTORE] (from %s)", remote)
 
 			infoMap := node.Membership.GetInfoMap()
 			self := infoMap[node.RingID]
@@ -1794,7 +1795,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			// Read all directories in hydfs_storage
 			entries, err := os.ReadDir(fileops.StorageRoot)
 			if err != nil {
-				log.Printf("❌ [LISTSTORE] Failed to read storage directory: %v", err)
+				log.Printf("[LISTSTORE] Failed to read storage directory: %v", err)
 				writeResp(fmt.Sprintf("ERR failed to read storage: %v", err))
 				continue
 			}
@@ -1814,7 +1815,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 
 				var metadata storage.FileMetadata
 				if err := json.Unmarshal(data, &metadata); err != nil {
-					log.Printf("⚠️  [LISTSTORE] Failed to parse metadata for %s: %v", entry.Name(), err)
+					log.Printf("[LISTSTORE] Failed to parse metadata for %s: %v", entry.Name(), err)
 					continue
 				}
 
@@ -1845,7 +1846,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			}
 			result.WriteString("════════════════════════════════════════════════════════════\n")
 
-			log.Printf("✅ [LISTSTORE] Returned %d files stored on this node", len(storedFiles))
+			log.Printf("[LISTSTORE] Returned %d files stored on this node", len(storedFiles))
 			writeResp(result.String())
 
 		case "getfromreplica":
@@ -1857,7 +1858,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			hydfsFile := parts[2]
 			localFile := parts[3]
 
-			log.Printf("🚀 [GETFROMREPLICA] %s from %s -> %s (from %s)", hydfsFile, vmAddr, localFile, remote)
+			log.Printf("[GETFROMREPLICA] %s from %s -> %s (from %s)", hydfsFile, vmAddr, localFile, remote)
 
 			broadcastOperation(node, "getfromreplica", hydfsFile, map[string]interface{}{
 				"vmaddress": vmAddr,
@@ -1876,7 +1877,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			}
 			hydfsFile := parts[1]
 
-			log.Printf("🚀 [MULTIAPPEND] %s (from %s)", hydfsFile, remote)
+			log.Printf("[MULTIAPPEND] %s (from %s)", hydfsFile, remote)
 
 			broadcastOperation(node, "multiappend", hydfsFile, map[string]interface{}{
 				"client": remote,
@@ -1902,7 +1903,7 @@ func handleClientConnection(node *common.Node, conn net.Conn) {
 			// Execute local grep query
 			output, err := logging.Query(grepArgs)
 			if err != nil {
-				log.Printf("❌ [DGREP_QUERY] Error: %v", err)
+				log.Printf("[DGREP_QUERY] Error: %v", err)
 				writeResp(fmt.Sprintf("ERROR: %v", err))
 				// Always send terminator even on error
 				writeResp("END_DGREP")
@@ -1958,7 +1959,7 @@ func main() {
 		} else {
 			// Write to both stdout and file
 			log.SetOutput(io.MultiWriter(os.Stdout, f))
-			log.Printf("📝 Logging to %s", logFile)
+			log.Printf("Logging to %s", logFile)
 		}
 	}
 
@@ -1999,21 +2000,21 @@ func main() {
 	if err := fileops.InitStorage(); err != nil {
 		log.Fatalf("failed to initialize storage: %v", err)
 	}
-	log.Printf("✅ Storage initialized at %s", fileops.StorageRoot)
+	log.Printf("Storage initialized at %s", fileops.StorageRoot)
 
 	// Initialize global BlockStore instance (prevents race conditions on concurrent appends)
 	globalBlockStore = storage.NewBlockStore(fileops.StorageRoot)
-	log.Printf("✅ Global BlockStore initialized")
+	log.Printf("Global BlockStore initialized")
 
 	// Setup graceful shutdown on Ctrl+C (SIGINT) or SIGTERM
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		sig := <-sigChan
-		log.Printf("\n🛑 Received signal: %v", sig)
+		log.Printf("\n Received signal: %v", sig)
 		log.Println("Performing graceful leave...")
 		gracefulLeave(node)
-		log.Println("✅ Gracefully left the cluster. Exiting.")
+		log.Println("Gracefully left the cluster. Exiting.")
 		os.Exit(0)
 	}()
 
@@ -2026,7 +2027,7 @@ func main() {
 	// Determine if we're the introducer
 	introducerHost := cfg.VMs[0]
 	if hostname == introducerHost {
-		log.Printf("✅ I am the introducer (%s), ready to accept joins", introducerHost)
+		log.Printf("I am the introducer (%s), ready to accept joins", introducerHost)
 	} else {
 		// Non-introducer nodes: wait a bit longer for introducer to be ready, then join
 		log.Printf("Waiting for introducer to be ready...")
@@ -2076,10 +2077,10 @@ func main() {
 	rainStormServer := rainstorm.NewServer(node, cfg, globalBlockStore)
 	if len(cfg.VMs) > 0 && hostname == cfg.VMs[0] {
 		rainStormServer.Role = "leader"
-		log.Printf("👑 [RAINSTORM] Role assigned: LEADER (ResourceManager)")
+		log.Printf("[RAINSTORM] Role assigned: LEADER (ResourceManager)")
 	} else {
 		rainStormServer.Role = "worker"
-		log.Printf("👷 [RAINSTORM] Role assigned: WORKER")
+		log.Printf("[RAINSTORM] Role assigned: WORKER")
 	}
 	go rainStormServer.Start()
 
@@ -2100,39 +2101,39 @@ func startInteractiveCLI(node *common.Node) {
 	fmt.Printf("║        Distributed Stream Processing System                ║\n")
 	fmt.Printf("╚════════════════════════════════════════════════════════════╝\n\n")
 	fmt.Printf("Node Information:\n")
-	fmt.Printf("  Hostname:  %s\n", self.Hostname)
-	fmt.Printf("  Port:      %d\n", self.Port)
-	fmt.Printf("  Ring ID:   %020d\n\n", node.RingID)
+	fmt.Printf("Hostname:  %s\n", self.Hostname)
+	fmt.Printf("Port:      %d\n", self.Port)
+	fmt.Printf("Ring ID:   %020d\n\n", node.RingID)
 
 	fmt.Printf("Available Commands:\n\n")
 
-	fmt.Printf("  Distributed Log Query:\n")
-	fmt.Printf("    dgrep [flags] <pattern> - Search logs across all nodes in cluster\n\n")
+	fmt.Printf("Distributed Log Query:\n")
+	fmt.Printf("dgrep [flags] <pattern> - Search logs across all nodes in cluster\n\n")
 
-	fmt.Printf("  Group Membership (SWIM):\n")
-	fmt.Printf("    list_mem          - List the membership list\n")
-	fmt.Printf("    list_self         - List self's information\n")
-	fmt.Printf("    join              - Join or rejoin the group (new incarnation)\n")
-	fmt.Printf("    leave             - Voluntarily leave the group (stay in CLI)\n\n")
+	fmt.Printf("Group Membership (SWIM):\n")
+	fmt.Printf("list_mem          - List the membership list\n")
+	fmt.Printf("list_self         - List self's information\n")
+	fmt.Printf("join              - Join or rejoin the group (new incarnation)\n")
+	fmt.Printf("leave             - Voluntarily leave the group (stay in CLI)\n\n")
 
-	fmt.Printf("  Distributed File System (HyDFS):\n")
-	fmt.Printf("    create <local> <hydfs>                        - Create file in HyDFS\n")
-	fmt.Printf("    get <hydfs> <local>                           - Fetch file from HyDFS\n")
-	fmt.Printf("    append <local> <hydfs>                        - Append to existing file\n")
-	fmt.Printf("    merge <hydfs>                                 - Merge file replicas\n")
-	fmt.Printf("    ls <hydfs>                                    - List replica locations\n")
-	fmt.Printf("    liststore                                     - List files on this node\n")
-	fmt.Printf("    getfromreplica <node> <hydfs> <local>         - Get from specific replica\n")
-	fmt.Printf("    list_mem_ids                                  - List membership with ring IDs (sorted)\n")
-	fmt.Printf("    multiappend <hydfs> <n1..nN> <file1..fileN>  - Multi-node concurrent append\n\n")
+	fmt.Printf("Distributed File System (HyDFS):\n")
+	fmt.Printf("create <local> <hydfs>                        - Create file in HyDFS\n")
+	fmt.Printf("get <hydfs> <local>                           - Fetch file from HyDFS\n")
+	fmt.Printf("append <local> <hydfs>                        - Append to existing file\n")
+	fmt.Printf("merge <hydfs>                                 - Merge file replicas\n")
+	fmt.Printf("ls <hydfs>                                    - List replica locations\n")
+	fmt.Printf("liststore                                     - List files on this node\n")
+	fmt.Printf("getfromreplica <node> <hydfs> <local>         - Get from specific replica\n")
+	fmt.Printf("list_mem_ids                                  - List membership with ring IDs (sorted)\n")
+	fmt.Printf("multiappend <hydfs> <n1..nN> <file1..fileN>  - Multi-node concurrent append\n\n")
 
-	fmt.Printf("  Stream Processing (RainStorm):\n")
-	fmt.Printf("    list_tasks                                    - Query leader for all task details\n")
-	fmt.Printf("    kill_task <node> <pid>                        - Kill a specific task process\n\n")
+	fmt.Printf("Stream Processing (RainStorm):\n")
+	fmt.Printf("list_tasks                                    - Query leader for all task details\n")
+	fmt.Printf("kill_task <node> <pid>                        - Kill a specific task process\n\n")
 
-	fmt.Printf("  Utility:\n")
-	fmt.Printf("    help              - Show this help message\n")
-	fmt.Printf("    quit              - Gracefully leave and exit the program\n\n")
+	fmt.Printf("Utility:\n")
+	fmt.Printf("help              - Show this help message\n")
+	fmt.Printf("quit              - Gracefully leave and exit the program\n\n")
 
 	fmt.Printf("════════════════════════════════════════════════════════════\n\n")
 
@@ -2149,7 +2150,7 @@ func startInteractiveCLI(node *common.Node) {
 		}
 
 		// Log the CLI command to the log file
-		log.Printf("🖥️  [CLI] User command: %s", command)
+		log.Printf("[CLI] User command: %s", command)
 
 		parts := strings.Fields(command)
 		if len(parts) == 0 {
@@ -2192,12 +2193,12 @@ func startInteractiveCLI(node *common.Node) {
 		case "help":
 			showHelp()
 		case "quit", "exit":
-			fmt.Println("\n👋 Gracefully leaving cluster and exiting HyDFS...")
+			fmt.Println("\n Gracefully leaving cluster and exiting HyDFS...")
 			gracefulLeave(node)
-			fmt.Println("✅ Goodbye!")
+			fmt.Println("Goodbye!")
 			os.Exit(0)
 		default:
-			fmt.Printf("❌ Unknown command: %s\n", parts[0])
+			fmt.Printf("Unknown command: %s\n", parts[0])
 			fmt.Println("Type 'help' for available commands.")
 		}
 	}
@@ -2207,7 +2208,7 @@ func startInteractiveCLI(node *common.Node) {
 func handleCLIListMem(node *common.Node) {
 	table := node.Membership.Table()
 	fmt.Println("════════════════════════════════════════")
-	fmt.Println("         MEMBERSHIP LIST")
+	fmt.Println("MEMBERSHIP LIST")
 	fmt.Println("════════════════════════════════════════")
 	fmt.Print(table)
 	fmt.Println("════════════════════════════════════════")
@@ -2230,7 +2231,7 @@ func handleCLIListMemIds(node *common.Node) {
 	})
 
 	fmt.Println("════════════════════════════════════════════════════════════")
-	fmt.Println("              MEMBERSHIP LIST WITH RING IDs")
+	fmt.Println("MEMBERSHIP LIST WITH RING IDs")
 	fmt.Println("════════════════════════════════════════════════════════════")
 	fmt.Printf("%-40s %-10s %-20s\n", "Hostname", "Port", "Ring ID")
 	fmt.Println("────────────────────────────────────────────────────────────")
@@ -2265,14 +2266,14 @@ func handleCLIListSelf(node *common.Node) {
 	}
 
 	fmt.Println("════════════════════════════════════════")
-	fmt.Println("         SELF INFORMATION")
+	fmt.Println("SELF INFORMATION")
 	fmt.Println("════════════════════════════════════════")
-	fmt.Printf("  Ring ID:   %020d\n", node.RingID)
-	fmt.Printf("  Hostname:  %s\n", self.Hostname)
-	fmt.Printf("  Port:      %d\n", self.Port)
-	fmt.Printf("  State:     %s\n", stateStr)
-	fmt.Printf("  Active:    %s\n", activeStr)
-	fmt.Printf("  Version:   %s\n", self.Version.Format("2006-01-02 15:04:05"))
+	fmt.Printf("Ring ID:   %020d\n", node.RingID)
+	fmt.Printf("Hostname:  %s\n", self.Hostname)
+	fmt.Printf("Port:      %d\n", self.Port)
+	fmt.Printf("State:     %s\n", stateStr)
+	fmt.Printf("Active:    %s\n", activeStr)
+	fmt.Printf("Version:   %s\n", self.Version.Format("2006-01-02 15:04:05"))
 	fmt.Println("════════════════════════════════════════")
 }
 
@@ -2287,7 +2288,7 @@ func handleCLIJoin(node *common.Node) {
 		infoMap := node.Membership.GetInfoMap()
 		self, ok := infoMap[node.RingID]
 		if ok && self.State == membership.Alive {
-			fmt.Println("⚠️  Already in the cluster!")
+			fmt.Println("Already in the cluster!")
 			return
 		}
 	}
@@ -2297,7 +2298,7 @@ func handleCLIJoin(node *common.Node) {
 	self, ok := infoMap[node.RingID]
 
 	if ok && self.State == membership.Failed {
-		fmt.Println("🔄 Creating new incarnation for rejoin...")
+		fmt.Println("Creating new incarnation for rejoin...")
 
 		// Create new Info with current timestamp as new Version (incarnation)
 		now := time.Now()
@@ -2315,7 +2316,7 @@ func handleCLIJoin(node *common.Node) {
 		node.Membership.Reset(now, self.Hostname, self.Port)
 		node.RingID = newId
 
-		fmt.Printf("✅ New incarnation created (Ring ID: %020d)\n", newId)
+		fmt.Printf("New incarnation created (Ring ID: %020d)\n", newId)
 	}
 
 	// Activate the node
@@ -2325,13 +2326,13 @@ func handleCLIJoin(node *common.Node) {
 
 	cfg, err := common.LoadConfig("config.json")
 	if err != nil {
-		fmt.Printf("❌ Failed to load config: %v\n", err)
+		fmt.Printf("Failed to load config: %v\n", err)
 		return
 	}
 
 	go joinGroup(node, cfg)
-	fmt.Println("✅ Join request sent to introducer")
-	fmt.Println("   💡 Node is now active and gossiping")
+	fmt.Println("Join request sent to introducer")
+	fmt.Println("Node is now active and gossiping")
 }
 
 func handleCLILeave(node *common.Node) {
@@ -2340,29 +2341,29 @@ func handleCLILeave(node *common.Node) {
 	node.ActiveMutex.RUnlock()
 
 	if !isActive {
-		fmt.Println("⚠️  Already left the group")
-		fmt.Println("   💡 Use 'join' to rejoin with a new incarnation")
+		fmt.Println("Already left the group")
+		fmt.Println("Use 'join' to rejoin with a new incarnation")
 		return
 	}
 
 	gracefulLeave(node)
-	fmt.Println("✅ Left the group gracefully")
-	fmt.Println("   🔇 Gossip and heartbeat stopped")
-	fmt.Println("   💡 You can still monitor membership with 'list_mem'")
-	fmt.Println("   💡 Use 'join' to rejoin with a new incarnation")
-	fmt.Println("   💡 Use 'quit' to exit the program")
+	fmt.Println("Left the group gracefully")
+	fmt.Println("Gossip and heartbeat stopped")
+	fmt.Println("You can still monitor membership with 'list_mem'")
+	fmt.Println("Use 'join' to rejoin with a new incarnation")
+	fmt.Println("Use 'quit' to exit the program")
 }
 
 func handleCLICreate(node *common.Node, parts []string) {
 	if len(parts) < 3 {
-		fmt.Println("❌ Usage: create <localfile> <hydfsfile>")
-		fmt.Println("   Example: create local.txt hydfs_file.txt")
+		fmt.Println("Usage: create <localfile> <hydfsfile>")
+		fmt.Println("Example: create local.txt hydfs_file.txt")
 		return
 	}
 	localFile := parts[1]
 	hydfsFile := parts[2]
 
-	fmt.Printf("🚀 CREATE: %s -> %s\n", localFile, hydfsFile)
+	fmt.Printf("CREATE: %s -> %s\n", localFile, hydfsFile)
 
 	// Check if file already exists in local store
 	node.FileStoreMutex.RLock()
@@ -2370,14 +2371,14 @@ func handleCLICreate(node *common.Node, parts []string) {
 	node.FileStoreMutex.RUnlock()
 
 	if localExists {
-		fmt.Printf("❌ File %s already exists in HyDFS\n", hydfsFile)
+		fmt.Printf("File %s already exists in HyDFS\n", hydfsFile)
 		return
 	}
 
 	// Read local file
 	content, err := os.ReadFile(localFile)
 	if err != nil {
-		fmt.Printf("❌ Failed to read %s: %v\n", localFile, err)
+		fmt.Printf("Failed to read %s: %v\n", localFile, err)
 		return
 	}
 
@@ -2389,20 +2390,20 @@ func handleCLICreate(node *common.Node, parts []string) {
 	successors := hashing.GetSuccessors(fileID, infoMap, hashing.NumReplicas)
 
 	if len(successors) == 0 {
-		fmt.Println("❌ No alive nodes to replicate to")
+		fmt.Println("No alive nodes to replicate to")
 		return
 	}
 
 	// DO NOT SORT - GetSuccessors already returns them in correct ring order
 	// The first element is the primary replica
 
-	fmt.Printf("📍 File %s (ID=%020d) will replicate to %d nodes\n",
+	fmt.Printf("File %s (ID=%020d) will replicate to %d nodes\n",
 		hydfsFile, fileID, len(successors))
 
 	// Primary Replica is the first successor (after sorting)
 	primaryNodeID := successors[0]
 	primaryInfo := infoMap[primaryNodeID]
-	fmt.Printf("✅ Primary Replica: %s:%d (NodeID=%020d)\n",
+	fmt.Printf("Primary Replica: %s:%d (NodeID=%020d)\n",
 		primaryInfo.Hostname, primaryInfo.Port, primaryNodeID)
 
 	// Check if this node is a replica
@@ -2424,7 +2425,7 @@ func handleCLICreate(node *common.Node, parts []string) {
 	// Store locally if we're a replica
 	if isReplica {
 		if err := node.Storage.WriteFile(hydfsFile, content); err != nil {
-			fmt.Printf("❌ Failed to store locally: %v\n", err)
+			fmt.Printf("Failed to store locally: %v\n", err)
 			return
 		}
 
@@ -2442,9 +2443,9 @@ func handleCLICreate(node *common.Node, parts []string) {
 		self := infoMap[node.RingID]
 		replicatedTo = append(replicatedTo, fmt.Sprintf("%s:%d", self.Hostname, self.Port))
 		if isPrimary {
-			fmt.Printf("✅ Stored locally as PRIMARY (%d bytes)\n", len(content))
+			fmt.Printf("Stored locally as PRIMARY (%d bytes)\n", len(content))
 		} else {
-			fmt.Printf("✅ Stored locally (%d bytes)\n", len(content))
+			fmt.Printf("Stored locally (%d bytes)\n", len(content))
 		}
 	}
 
@@ -2480,21 +2481,21 @@ func handleCLICreate(node *common.Node, parts []string) {
 		go func(hostname string, port int, nid uint64, isPrimary bool) {
 			conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", hostname, port), 3*time.Second)
 			if err != nil {
-				fmt.Printf("❌ Failed to connect to replica %s:%d: %v\n", hostname, port, err)
+				fmt.Printf("Failed to connect to replica %s:%d: %v\n", hostname, port, err)
 				return
 			}
 			defer conn.Close()
 
 			conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
 			if _, err := conn.Write(append(jsonData, '\n')); err != nil {
-				fmt.Printf("❌ Failed to send to replica %s:%d: %v\n", hostname, port, err)
+				fmt.Printf("Failed to send to replica %s:%d: %v\n", hostname, port, err)
 				return
 			}
 
 			if isPrimary {
-				fmt.Printf("✅ Replicated to %s:%d (NodeID=%020d) [PRIMARY]\n", hostname, port, nid)
+				fmt.Printf("Replicated to %s:%d (NodeID=%020d) [PRIMARY]\n", hostname, port, nid)
 			} else {
-				fmt.Printf("✅ Replicated to %s:%d (NodeID=%020d)\n", hostname, port, nid)
+				fmt.Printf("Replicated to %s:%d (NodeID=%020d)\n", hostname, port, nid)
 			}
 		}(info.Hostname, info.Port, nodeID, isPrimaryReplica)
 
@@ -2504,47 +2505,47 @@ func handleCLICreate(node *common.Node, parts []string) {
 	// Give a moment for async replication
 	time.Sleep(500 * time.Millisecond)
 
-	fmt.Printf("🎉 File %s created and replicated to %d nodes:\n", hydfsFile, len(replicatedTo))
+	fmt.Printf("File %s created and replicated to %d nodes:\n", hydfsFile, len(replicatedTo))
 	for _, replica := range replicatedTo {
-		fmt.Printf("   - %s\n", replica)
+		fmt.Printf("- %s\n", replica)
 	}
 }
 
 func handleCLIGet(node *common.Node, parts []string) {
 	if len(parts) < 3 {
-		fmt.Println("❌ Usage: get <hydfsfile> <localfile>")
-		fmt.Println("   Example: get hydfs_file.txt local.txt")
+		fmt.Println("Usage: get <hydfsfile> <localfile>")
+		fmt.Println("Example: get hydfs_file.txt local.txt")
 		return
 	}
 	hydfsFile := parts[1]
 	localFile := parts[2]
 
-	fmt.Printf("🚀 GET: %s -> %s\n", hydfsFile, localFile)
+	fmt.Printf("GET: %s -> %s\n", hydfsFile, localFile)
 
 	broadcastOperation(node, "get", hydfsFile, map[string]interface{}{
 		"localfile": localFile,
 		"client":    "CLI",
 	})
 
-	fmt.Println("✅ Operation logged and broadcast to all members")
-	fmt.Println("   (Note: File retrieval not implemented yet)")
+	fmt.Println("Operation logged and broadcast to all members")
+	fmt.Println("(Note: File retrieval not implemented yet)")
 }
 
 func handleCLIAppend(node *common.Node, parts []string) {
 	if len(parts) < 3 {
-		fmt.Println("❌ Usage: append <localfile> <hydfsfile>")
-		fmt.Println("   Example: append data.txt hydfs_file.txt")
+		fmt.Println("Usage: append <localfile> <hydfsfile>")
+		fmt.Println("Example: append data.txt hydfs_file.txt")
 		return
 	}
 	localFile := parts[1]
 	hydfsFile := parts[2]
 
-	fmt.Printf("🚀 APPEND: %s -> %s\n", localFile, hydfsFile)
+	fmt.Printf("APPEND: %s -> %s\n", localFile, hydfsFile)
 
 	// Read local file content
 	content, err := os.ReadFile(localFile)
 	if err != nil {
-		fmt.Printf("❌ Failed to read local file %s: %v\n", localFile, err)
+		fmt.Printf("Failed to read local file %s: %v\n", localFile, err)
 		return
 	}
 
@@ -2556,14 +2557,14 @@ func handleCLIAppend(node *common.Node, parts []string) {
 	expectedSuccessors := hashing.GetSuccessors(fileID, infoMap, hashing.NumReplicas)
 
 	if len(expectedSuccessors) == 0 {
-		fmt.Println("❌ No alive nodes to replicate to")
+		fmt.Println("No alive nodes to replicate to")
 		return
 	}
 
 	// Generate client ID (hostname + timestamp for uniqueness)
 	clientID := fmt.Sprintf("%s_%d", infoMap[node.RingID].Hostname, time.Now().UnixNano())
 
-	fmt.Printf("📍 [APPEND] File %s (ID=%020d) will append to %d replicas\n",
+	fmt.Printf("[APPEND] File %s (ID=%020d) will append to %d replicas\n",
 		hydfsFile, fileID, len(expectedSuccessors))
 
 	// Send append request to all replicas
@@ -2590,15 +2591,15 @@ func handleCLIAppend(node *common.Node, parts []string) {
 		jsonData, _ := json.Marshal(msg)
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", targetInfo.Hostname, targetInfo.Port), 5*time.Second)
 		if err != nil {
-			fmt.Printf("⚠️  Failed to connect to %s: %v\n", targetInfo.Hostname, err)
+			fmt.Printf("Failed to connect to %s: %v\n", targetInfo.Hostname, err)
 			continue
 		}
 
 		conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		if _, err := conn.Write(append(jsonData, '\n')); err != nil {
-			fmt.Printf("⚠️  Failed to send append to %s: %v\n", targetInfo.Hostname, err)
+			fmt.Printf("Failed to send append to %s: %v\n", targetInfo.Hostname, err)
 		} else {
-			fmt.Printf("✅ [APPEND] Sent to %s:%d (NodeID=%020d)\n",
+			fmt.Printf("[APPEND] Sent to %s:%d (NodeID=%020d)\n",
 				targetInfo.Hostname, targetInfo.Port, nodeID)
 			successCount++
 		}
@@ -2609,22 +2610,22 @@ func handleCLIAppend(node *common.Node, parts []string) {
 	time.Sleep(500 * time.Millisecond)
 
 	if successCount > 0 {
-		fmt.Printf("🎉 [APPEND] Successfully sent append to %d/%d replicas\n", successCount, len(expectedSuccessors))
-		fmt.Printf("✅ [APPEND] Append operation completed\n")
+		fmt.Printf("[APPEND] Successfully sent append to %d/%d replicas\n", successCount, len(expectedSuccessors))
+		fmt.Printf("[APPEND] Append operation completed\n")
 	} else {
-		fmt.Println("❌ [APPEND] Failed to append to any replicas")
+		fmt.Println("[APPEND] Failed to append to any replicas")
 	}
 }
 
 func handleCLIMerge(node *common.Node, parts []string) {
 	if len(parts) < 2 {
-		fmt.Println("❌ Usage: merge <hydfsfile>")
-		fmt.Println("   Example: merge hydfs_file.txt")
+		fmt.Println("Usage: merge <hydfsfile>")
+		fmt.Println("Example: merge hydfs_file.txt")
 		return
 	}
 	hydfsFile := parts[1]
 
-	fmt.Printf("🚀 MERGE: %s\n", hydfsFile)
+	fmt.Printf("MERGE: %s\n", hydfsFile)
 
 	// Calculate file ID
 	fileID := hashing.HashString(hydfsFile)
@@ -2634,11 +2635,11 @@ func handleCLIMerge(node *common.Node, parts []string) {
 	successors := hashing.GetSuccessors(fileID, infoMap, hashing.NumReplicas)
 
 	if len(successors) == 0 {
-		fmt.Println("❌ No alive replicas found")
+		fmt.Println("No alive replicas found")
 		return
 	}
 
-	fmt.Printf("📍 [MERGE] File %s (ID=%020d) has %d replicas\n",
+	fmt.Printf("[MERGE] File %s (ID=%020d) has %d replicas\n",
 		hydfsFile, fileID, len(successors))
 
 	// For simplicity: just trigger re-replication from primary to ensure consistency
@@ -2646,16 +2647,16 @@ func handleCLIMerge(node *common.Node, parts []string) {
 	primaryNodeID := successors[0]
 	primaryInfo, ok := infoMap[primaryNodeID]
 	if !ok || primaryInfo.State != membership.Alive {
-		fmt.Println("❌ Primary replica not available")
+		fmt.Println("Primary replica not available")
 		return
 	}
 
-	fmt.Printf("📍 [MERGE] Primary replica: %s (NodeID=%020d)\n",
+	fmt.Printf("[MERGE] Primary replica: %s (NodeID=%020d)\n",
 		primaryInfo.Hostname, primaryNodeID)
 
 	// If we ARE the primary, collect blocks from ALL replicas and merge
 	if primaryNodeID == node.RingID {
-		fmt.Println("🔄 [MERGE] This node is primary - collecting blocks from all replicas")
+		fmt.Println("[MERGE] This node is primary - collecting blocks from all replicas")
 
 		// Step 1: Collect all blocks from all replicas (including self)
 		allBlocks := make(map[string]storage.BlockInfo) // Use map to deduplicate by clientID+sequence
@@ -2679,7 +2680,7 @@ func handleCLIMerge(node *common.Node, parts []string) {
 					// Read from self
 					blocks, err = globalBlockStore.GetAllBlocks(hydfsFile)
 					if err != nil {
-						fmt.Printf("⚠️  Failed to read local blocks: %v\n", err)
+						fmt.Printf("Failed to read local blocks: %v\n", err)
 						return
 					}
 				} else {
@@ -2698,14 +2699,14 @@ func handleCLIMerge(node *common.Node, parts []string) {
 					jsonData, _ := json.Marshal(msg)
 					conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", repInfo.Hostname, repInfo.Port), 5*time.Second)
 					if err != nil {
-						fmt.Printf("⚠️  Failed to connect to replica %s: %v\n", repInfo.Hostname, err)
+						fmt.Printf("Failed to connect to replica %s: %v\n", repInfo.Hostname, err)
 						return
 					}
 					defer conn.Close()
 
 					conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 					if _, err := conn.Write(append(jsonData, '\n')); err != nil {
-						fmt.Printf("⚠️  Failed to request blocks from %s: %v\n", repInfo.Hostname, err)
+						fmt.Printf("Failed to request blocks from %s: %v\n", repInfo.Hostname, err)
 						return
 					}
 
@@ -2716,7 +2717,7 @@ func handleCLIMerge(node *common.Node, parts []string) {
 						Blocks []storage.BlockInfo `json:"blocks"`
 					}
 					if err := decoder.Decode(&response); err != nil {
-						fmt.Printf("⚠️  Failed to read blocks from %s: %v\n", repInfo.Hostname, err)
+						fmt.Printf("Failed to read blocks from %s: %v\n", repInfo.Hostname, err)
 						return
 					}
 					blocks = response.Blocks
@@ -2730,7 +2731,7 @@ func handleCLIMerge(node *common.Node, parts []string) {
 				}
 				blocksMutex.Unlock()
 
-				fmt.Printf("� [MERGE] Collected %d blocks from %s\n", len(blocks), repInfo.Hostname)
+				fmt.Printf("[MERGE] Collected %d blocks from %s\n", len(blocks), repInfo.Hostname)
 			}(replicaInfo, replicaID)
 		}
 
@@ -2743,28 +2744,28 @@ func handleCLIMerge(node *common.Node, parts []string) {
 			blockSlice = append(blockSlice, block)
 		}
 
-		fmt.Printf("📊 [MERGE] Collected %d unique blocks from all replicas\n", len(blockSlice))
+		fmt.Printf("[MERGE] Collected %d unique blocks from all replicas\n", len(blockSlice))
 
 		// Step 2: Merge blocks locally
 		if err := globalBlockStore.MergeFile(hydfsFile, blockSlice); err != nil {
-			fmt.Printf("❌ Failed to merge blocks: %v\n", err)
+			fmt.Printf("Failed to merge blocks: %v\n", err)
 			return
 		}
 
 		// Step 3: Read merged content
 		content, err := globalBlockStore.ReadFile(hydfsFile)
 		if err != nil {
-			fmt.Printf("❌ Failed to read merged file: %v\n", err)
+			fmt.Printf("Failed to read merged file: %v\n", err)
 			return
 		}
 
 		metadata, err := globalBlockStore.GetMetadata(hydfsFile)
 		if err != nil {
-			fmt.Printf("❌ Failed to read merged metadata: %v\n", err)
+			fmt.Printf("Failed to read merged metadata: %v\n", err)
 			return
 		}
 
-		fmt.Printf("📊 [MERGE] Merged file has %d blocks, redistributing to %d replicas\n",
+		fmt.Printf("[MERGE] Merged file has %d blocks, redistributing to %d replicas\n",
 			metadata.TotalBlocks, len(successors))
 
 		// Step 4: Send merged result to all replicas (including self for consistency)
@@ -2791,24 +2792,24 @@ func handleCLIMerge(node *common.Node, parts []string) {
 			jsonData, _ := json.Marshal(msg)
 			conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", replicaInfo.Hostname, replicaInfo.Port), 5*time.Second)
 			if err != nil {
-				fmt.Printf("⚠️  Failed to connect to replica %s: %v\n", replicaInfo.Hostname, err)
+				fmt.Printf("Failed to connect to replica %s: %v\n", replicaInfo.Hostname, err)
 				continue
 			}
 
 			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			if _, err := conn.Write(append(jsonData, '\n')); err != nil {
-				fmt.Printf("⚠️  Failed to send merge update to %s: %v\n", replicaInfo.Hostname, err)
+				fmt.Printf("Failed to send merge update to %s: %v\n", replicaInfo.Hostname, err)
 			} else {
-				fmt.Printf("✅ [MERGE] Sent merged file to %s\n", replicaInfo.Hostname)
+				fmt.Printf("[MERGE] Sent merged file to %s\n", replicaInfo.Hostname)
 				successCount++
 			}
 			conn.Close()
 		}
 
-		fmt.Printf("🎉 [MERGE] Merge complete - updated %d/%d replicas\n", successCount, len(successors))
+		fmt.Printf("[MERGE] Merge complete - updated %d/%d replicas\n", successCount, len(successors))
 	} else {
 		// We're not the primary - send merge request to primary
-		fmt.Printf("📤 [MERGE] Sending merge request to primary %s\n", primaryInfo.Hostname)
+		fmt.Printf("[MERGE] Sending merge request to primary %s\n", primaryInfo.Hostname)
 
 		msg := NodeMessage{
 			Type:      "merge_request",
@@ -2824,26 +2825,26 @@ func handleCLIMerge(node *common.Node, parts []string) {
 		jsonData, _ := json.Marshal(msg)
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", primaryInfo.Hostname, primaryInfo.Port), 5*time.Second)
 		if err != nil {
-			fmt.Printf("❌ Failed to connect to primary: %v\n", err)
+			fmt.Printf("Failed to connect to primary: %v\n", err)
 			return
 		}
 		defer conn.Close()
 
 		conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		if _, err := conn.Write(append(jsonData, '\n')); err != nil {
-			fmt.Printf("❌ Failed to send merge request: %v\n", err)
+			fmt.Printf("Failed to send merge request: %v\n", err)
 			return
 		}
 
-		fmt.Println("✅ [MERGE] Merge request sent to primary")
-		fmt.Println("   Primary will coordinate merge across all replicas")
+		fmt.Println("[MERGE] Merge request sent to primary")
+		fmt.Println("Primary will coordinate merge across all replicas")
 	}
 }
 
 func handleCLILs(parts []string, node *common.Node) {
 	if len(parts) < 2 {
-		fmt.Println("❌ Usage: ls <hydfsfile>")
-		fmt.Println("   Example: ls hydfs_file.txt")
+		fmt.Println("Usage: ls <hydfsfile>")
+		fmt.Println("Example: ls hydfs_file.txt")
 		return
 	}
 	hydfsFile := parts[1]
@@ -2856,7 +2857,7 @@ func handleCLILs(parts []string, node *common.Node) {
 	successors := hashing.GetSuccessors(fileID, infoMap, hashing.NumReplicas)
 
 	if len(successors) == 0 {
-		fmt.Printf("❌ No replicas found for %s\n", hydfsFile)
+		fmt.Printf("No replicas found for %s\n", hydfsFile)
 		return
 	}
 
@@ -2885,7 +2886,7 @@ func handleCLIListStore(node *common.Node) {
 	self := infoMap[node.RingID]
 
 	fmt.Println("════════════════════════════════════════")
-	fmt.Println("         FILES STORED ON THIS NODE")
+	fmt.Println("FILES STORED ON THIS NODE")
 	fmt.Println("════════════════════════════════════════")
 	fmt.Printf("Node: %s (Ring ID: %020d)\n", self.Hostname, node.RingID)
 	fmt.Println("────────────────────────────────────────")
@@ -2896,8 +2897,8 @@ func handleCLIListStore(node *common.Node) {
 	} else {
 		fmt.Printf("Total files: %d\n\n", len(node.FileStore))
 		for filename, metadata := range node.FileStore {
-			fmt.Printf("  📄 %s\n", filename)
-			fmt.Printf("     Version: %d, Blocks: %d\n", metadata.Version, len(metadata.Blocks))
+			fmt.Printf("%s\n", filename)
+			fmt.Printf("Version: %d, Blocks: %d\n", metadata.Version, len(metadata.Blocks))
 		}
 	}
 	node.FileStoreMutex.RUnlock()
@@ -2906,15 +2907,15 @@ func handleCLIListStore(node *common.Node) {
 
 func handleCLIGetFromReplica(node *common.Node, parts []string) {
 	if len(parts) < 4 {
-		fmt.Println("❌ Usage: getfromreplica <vmaddress> <hydfsfile> <localfile>")
-		fmt.Println("   Example: getfromreplica node1 hydfs_file.txt local.txt")
+		fmt.Println("Usage: getfromreplica <vmaddress> <hydfsfile> <localfile>")
+		fmt.Println("Example: getfromreplica node1 hydfs_file.txt local.txt")
 		return
 	}
 	vmAddr := parts[1]
 	hydfsFile := parts[2]
 	localFile := parts[3]
 
-	fmt.Printf("🚀 GETFROMREPLICA: %s from %s -> %s\n", hydfsFile, vmAddr, localFile)
+	fmt.Printf("GETFROMREPLICA: %s from %s -> %s\n", hydfsFile, vmAddr, localFile)
 
 	// Send GET request directly to the specified VM
 	msg := NodeMessage{
@@ -2938,14 +2939,14 @@ func handleCLIGetFromReplica(node *common.Node, parts []string) {
 
 	conn, err := net.DialTimeout("tcp", targetAddr, 5*time.Second)
 	if err != nil {
-		fmt.Printf("❌ Failed to connect to %s: %v\n", targetAddr, err)
+		fmt.Printf("Failed to connect to %s: %v\n", targetAddr, err)
 		return
 	}
 	defer conn.Close()
 
 	conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	if _, err := conn.Write(append(jsonData, '\n')); err != nil {
-		fmt.Printf("❌ Failed to send GET request: %v\n", err)
+		fmt.Printf("Failed to send GET request: %v\n", err)
 		return
 	}
 
@@ -2954,13 +2955,13 @@ func handleCLIGetFromReplica(node *common.Node, parts []string) {
 	reader := bufio.NewReader(conn)
 	respLine, err := reader.ReadString('\n')
 	if err != nil {
-		fmt.Printf("❌ Failed to read response: %v\n", err)
+		fmt.Printf("Failed to read response: %v\n", err)
 		return
 	}
 
 	var response NodeMessage
 	if err := json.Unmarshal([]byte(respLine), &response); err != nil {
-		fmt.Printf("❌ Failed to parse response: %v\n", err)
+		fmt.Printf("Failed to parse response: %v\n", err)
 		return
 	}
 
@@ -2968,7 +2969,7 @@ func handleCLIGetFromReplica(node *common.Node, parts []string) {
 	case "get_file_response", "get_response":
 		content, ok := response.Data["content"].(string)
 		if !ok {
-			fmt.Printf("❌ Invalid content in response\n")
+			fmt.Printf("Invalid content in response\n")
 			return
 		}
 
@@ -2977,43 +2978,43 @@ func handleCLIGetFromReplica(node *common.Node, parts []string) {
 		os.MkdirAll(localDir, 0755) // Ensure directory exists
 		localPath := filepath.Join(localDir, localFile)
 		if err := os.WriteFile(localPath, []byte(content), 0644); err != nil {
-			fmt.Printf("❌ Failed to write local file: %v\n", err)
+			fmt.Printf("Failed to write local file: %v\n", err)
 			return
 		}
 
-		fmt.Printf("✅ [GETFROMREPLICA] Retrieved %s (%d bytes) from %s -> %s\n",
+		fmt.Printf("[GETFROMREPLICA] Retrieved %s (%d bytes) from %s -> %s\n",
 			hydfsFile, len(content), vmAddr, localPath)
 	case "error":
 		errorMsg, _ := response.Data["message"].(string)
-		fmt.Printf("❌ Error from replica: %s\n", errorMsg)
+		fmt.Printf("Error from replica: %s\n", errorMsg)
 	default:
-		fmt.Printf("❌ Unexpected response type: %s\n", response.Type)
+		fmt.Printf("Unexpected response type: %s\n", response.Type)
 	}
 }
 
 func handleCLIMultiAppend(parts []string) {
 	if len(parts) < 4 {
-		fmt.Println("❌ Usage: multiappend <hydfsfile> <vm1,vm2,...> <file1,file2,...>")
-		fmt.Println("   Example: multiappend hydfs_file.txt 1,2,3,4 business_10.txt,business_11.txt,business_12.txt,business_13.txt")
-		fmt.Println("   Note: VM numbers (1-10) or hostnames can be used")
+		fmt.Println("Usage: multiappend <hydfsfile> <vm1,vm2,...> <file1,file2,...>")
+		fmt.Println("Example: multiappend hydfs_file.txt 1,2,3,4 business_10.txt,business_11.txt,business_12.txt,business_13.txt")
+		fmt.Println("Note: VM numbers (1-10) or hostnames can be used")
 		return
 	}
 	hydfsFile := parts[1]
 	vmListStr := parts[2]
 	fileListStr := parts[3]
 
-	fmt.Printf("🚀 MULTI-APPEND: %s\n", hydfsFile)
+	fmt.Printf("MULTI-APPEND: %s\n", hydfsFile)
 
 	// Parse VM list
 	vmParts := strings.Split(vmListStr, ",")
 	fileParts := strings.Split(fileListStr, ",")
 
 	if len(vmParts) != len(fileParts) {
-		fmt.Printf("❌ VM count (%d) must match file count (%d)\n", len(vmParts), len(fileParts))
+		fmt.Printf("VM count (%d) must match file count (%d)\n", len(vmParts), len(fileParts))
 		return
 	}
 
-	fmt.Printf("📍 [MULTIAPPEND] Will launch %d concurrent appends to %s\n", len(vmParts), hydfsFile)
+	fmt.Printf("[MULTIAPPEND] Will launch %d concurrent appends to %s\n", len(vmParts), hydfsFile)
 
 	// Map node numbers or hostnames to full addresses (from config)
 	var vmHosts []string
@@ -3036,7 +3037,7 @@ func handleCLIMultiAppend(parts []string) {
 			if vmNum, err := strconv.Atoi(vmStr); err == nil {
 				// It's a number (1-10)
 				if vmNum < 1 || vmNum > 10 {
-					fmt.Printf("❌ [MULTIAPPEND %d] Invalid VM number: %d (must be 1-10)\n", index+1, vmNum)
+					fmt.Printf("[MULTIAPPEND %d] Invalid VM number: %d (must be 1-10)\n", index+1, vmNum)
 					return
 				}
 				targetHost = vmHosts[vmNum-1]
@@ -3057,13 +3058,13 @@ func handleCLIMultiAppend(parts []string) {
 				fullLocalPath = "data/business/" + localFile
 			}
 
-			fmt.Printf("📤 [MULTIAPPEND %d] Sending append command to %s: append %s %s\n",
+			fmt.Printf("[MULTIAPPEND %d] Sending append command to %s: append %s %s\n",
 				index+1, targetHost, fullLocalPath, hydfsFile)
 
 			// Connect to target VM's client port and send append command
 			conn, err := net.DialTimeout("tcp", targetAddr, 5*time.Second)
 			if err != nil {
-				fmt.Printf("❌ [MULTIAPPEND %d] Failed to connect to %s: %v\n", index+1, targetHost, err)
+				fmt.Printf("[MULTIAPPEND %d] Failed to connect to %s: %v\n", index+1, targetHost, err)
 				return
 			}
 			defer conn.Close()
@@ -3072,7 +3073,7 @@ func handleCLIMultiAppend(parts []string) {
 			appendCmd := fmt.Sprintf("append %s %s\n", fullLocalPath, hydfsFile)
 			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			if _, err := conn.Write([]byte(appendCmd)); err != nil {
-				fmt.Printf("❌ [MULTIAPPEND %d] Failed to send append to %s: %v\n", index+1, targetHost, err)
+				fmt.Printf("[MULTIAPPEND %d] Failed to send append to %s: %v\n", index+1, targetHost, err)
 				return
 			}
 
@@ -3081,7 +3082,7 @@ func handleCLIMultiAppend(parts []string) {
 			reader := bufio.NewReader(conn)
 			response, err := reader.ReadString('\n')
 			if err != nil {
-				fmt.Printf("❌ [MULTIAPPEND %d] Failed to read response from %s: %v\n", index+1, targetHost, err)
+				fmt.Printf("[MULTIAPPEND %d] Failed to read response from %s: %v\n", index+1, targetHost, err)
 				return
 			}
 
@@ -3090,9 +3091,9 @@ func handleCLIMultiAppend(parts []string) {
 				mu.Lock()
 				successCount++
 				mu.Unlock()
-				fmt.Printf("✅ [MULTIAPPEND %d] Append completed on %s\n", index+1, targetHost)
+				fmt.Printf("[MULTIAPPEND %d] Append completed on %s\n", index+1, targetHost)
 			} else {
-				fmt.Printf("❌ [MULTIAPPEND %d] Append failed on %s: %s\n", index+1, targetHost, response)
+				fmt.Printf("[MULTIAPPEND %d] Append failed on %s: %s\n", index+1, targetHost, response)
 			}
 		}(vmParts[i], fileParts[i], i)
 	}
@@ -3100,31 +3101,31 @@ func handleCLIMultiAppend(parts []string) {
 	// Wait for all appends to complete
 	wg.Wait()
 
-	fmt.Printf("\n🎉 [MULTIAPPEND] Completed %d/%d concurrent appends to %s\n", successCount, len(vmParts), hydfsFile)
+	fmt.Printf("\n [MULTIAPPEND] Completed %d/%d concurrent appends to %s\n", successCount, len(vmParts), hydfsFile)
 }
 
 func handleCLIDgrep(node *common.Node, parts []string) {
 	if len(parts) < 2 {
-		fmt.Println("❌ Usage: dgrep [flags] <pattern>")
-		fmt.Println("   Available flags:")
-		fmt.Println("     -i            Case-insensitive search")
-		fmt.Println("     -v            Invert match (non-matching lines)")
-		fmt.Println("     -c            Count matches only")
-		fmt.Println("     -E            Extended regex")
-		fmt.Println("     -e <pattern>  Specify pattern (use when pattern starts with -)")
-		fmt.Println("     -m <num>      Stop after <num> matches")
-		fmt.Println("     --save <file> Save output to local file (optional)")
-		fmt.Println("   Examples:")
-		fmt.Println("     dgrep \"ERROR\"                    Simple search")
-		fmt.Println("     dgrep -i \"error\"                 Case-insensitive")
-		fmt.Println("     dgrep -c \"failed\"                Count only")
-		fmt.Println("     dgrep -E \"error|warning\"         Extended regex")
-		fmt.Println("     dgrep -i -E \"error|warning\"      Combined flags")
-		fmt.Println("     dgrep -i \"error\" --save out.txt  Save results")
+		fmt.Println("Usage: dgrep [flags] <pattern>")
+		fmt.Println("Available flags:")
+		fmt.Println("-i            Case-insensitive search")
+		fmt.Println("-v            Invert match (non-matching lines)")
+		fmt.Println("-c            Count matches only")
+		fmt.Println("-E            Extended regex")
+		fmt.Println("-e <pattern>  Specify pattern (use when pattern starts with -)")
+		fmt.Println("-m <num>      Stop after <num> matches")
+		fmt.Println("--save <file> Save output to local file (optional)")
+		fmt.Println("Examples:")
+		fmt.Println("dgrep \"ERROR\"                    Simple search")
+		fmt.Println("dgrep -i \"error\"                 Case-insensitive")
+		fmt.Println("dgrep -c \"failed\"                Count only")
+		fmt.Println("dgrep -E \"error|warning\"         Extended regex")
+		fmt.Println("dgrep -i -E \"error|warning\"      Combined flags")
+		fmt.Println("dgrep -i \"error\" --save out.txt  Save results")
 		fmt.Println("")
-		fmt.Println("   Note: When using -e or -m, provide the value immediately after:")
-		fmt.Println("     dgrep -i -e \"pattern\"            Correct")
-		fmt.Println("     dgrep -e -i \"pattern\"            Wrong (treats -i as pattern)")
+		fmt.Println("Note: When using -e or -m, provide the value immediately after:")
+		fmt.Println("dgrep -i -e \"pattern\"            Correct")
+		fmt.Println("dgrep -e -i \"pattern\"            Wrong (treats -i as pattern)")
 		return
 	}
 
@@ -3140,8 +3141,8 @@ func handleCLIDgrep(node *common.Node, parts []string) {
 		}
 	}
 
-	fmt.Printf("🔍 DGREP: Distributed grep across cluster\n")
-	fmt.Printf("   Pattern: %s\n", strings.Join(grepArgs, " "))
+	fmt.Printf("DGREP: Distributed grep across cluster\n")
+	fmt.Printf("Pattern: %s\n", strings.Join(grepArgs, " "))
 
 	// Get alive nodes from membership
 	infoMap := node.Membership.GetInfoMap()
@@ -3163,19 +3164,19 @@ func handleCLIDgrep(node *common.Node, parts []string) {
 	}
 
 	if len(aliveVMs) == 0 {
-		msg := "❌ No alive VMs in cluster"
+		msg := " No alive VMs in cluster"
 		fmt.Println(msg)
 		log.Printf("[CLI-DGREP] %s (Found %d total members in infoMap)", msg, len(infoMap))
-		fmt.Printf("   Debug: Found %d total members in infoMap\n", len(infoMap))
+		fmt.Printf("Debug: Found %d total members in infoMap\n", len(infoMap))
 		return
 	}
 
-	fmt.Printf("   Querying %d VMs...\n\n", len(aliveVMs))
+	fmt.Printf("Querying %d VMs...\n\n", len(aliveVMs))
 	log.Printf("[CLI-DGREP] Querying %d VMs for pattern: %s", len(aliveVMs), strings.Join(grepArgs, " "))
 
 	result, err := logging.QueryDistributed(grepArgs, aliveVMs)
 	if err != nil {
-		errMsg := fmt.Sprintf("❌ Dgrep error: %v", err)
+		errMsg := fmt.Sprintf("Dgrep error: %v", err)
 		fmt.Println(errMsg)
 		log.Printf("[CLI-DGREP] %s", errMsg)
 		return
@@ -3201,9 +3202,9 @@ func handleCLIDgrep(node *common.Node, parts []string) {
 	if saveFile != "" {
 		err := os.WriteFile(saveFile, []byte(result), 0644)
 		if err != nil {
-			fmt.Printf("❌ Failed to save to file %s: %v\n", saveFile, err)
+			fmt.Printf("Failed to save to file %s: %v\n", saveFile, err)
 		} else {
-			fmt.Printf("💾 Results saved to: %s\n", saveFile)
+			fmt.Printf("Results saved to: %s\n", saveFile)
 		}
 	}
 }
@@ -3212,13 +3213,13 @@ func handleCLIDgrep(node *common.Node, parts []string) {
 func handleCLIListTasks(node *common.Node) {
 	cfg, err := common.LoadConfig("config.json")
 	if err != nil {
-		fmt.Printf("❌ Failed to load config: %v\n", err)
+		fmt.Printf("Failed to load config: %v\n", err)
 		return
 	}
 
 	// Connect to leader (VM1)
 	if len(cfg.VMs) == 0 {
-		fmt.Println("❌ No VMs configured")
+		fmt.Println("No VMs configured")
 		return
 	}
 
@@ -3232,7 +3233,7 @@ func handleCLIListTasks(node *common.Node) {
 
 	conn, err := net.DialTimeout("tcp", leaderAddr, 3*time.Second)
 	if err != nil {
-		fmt.Printf("❌ Failed to connect to leader at %s: %v\n", leaderAddr, err)
+		fmt.Printf("Failed to connect to leader at %s: %v\n", leaderAddr, err)
 		return
 	}
 	defer conn.Close()
@@ -3240,7 +3241,7 @@ func handleCLIListTasks(node *common.Node) {
 	// Send request
 	encoder := json.NewEncoder(conn)
 	if err := encoder.Encode(msg); err != nil {
-		fmt.Printf("❌ Failed to send list_tasks request: %v\n", err)
+		fmt.Printf("Failed to send list_tasks request: %v\n", err)
 		return
 	}
 
@@ -3248,13 +3249,13 @@ func handleCLIListTasks(node *common.Node) {
 	decoder := json.NewDecoder(conn)
 	var response rainstorm.ListTasksResponse
 	if err := decoder.Decode(&response); err != nil {
-		fmt.Printf("❌ Failed to read response: %v\n", err)
+		fmt.Printf("Failed to read response: %v\n", err)
 		return
 	}
 
 	// Display tasks
 	fmt.Println("════════════════════════════════════════════════════════════")
-	fmt.Println("                    RAINSTORM TASKS")
+	fmt.Println("RAINSTORM TASKS")
 	fmt.Println("════════════════════════════════════════════════════════════")
 	fmt.Printf("%-20s %-30s %-8s %-20s %-10s\n", "Task ID", "VM", "PID", "Operator", "State")
 	fmt.Println("────────────────────────────────────────────────────────────")
@@ -3263,7 +3264,7 @@ func handleCLIListTasks(node *common.Node) {
 		fmt.Printf("%-20s %-30s %-8d %-20s %-10s\n",
 			task.TaskID, task.VM, task.PID, task.OpExe, task.State)
 		if task.LogFile != "" {
-			fmt.Printf("  Log: %s\n", task.LogFile)
+			fmt.Printf("Log: %s\n", task.LogFile)
 		}
 	}
 
@@ -3275,27 +3276,27 @@ func handleCLIListTasks(node *common.Node) {
 // handleCLIKillTask kills a specific task by VM and PID
 func handleCLIKillTask(node *common.Node, parts []string) {
 	if len(parts) < 3 {
-		fmt.Println("❌ Usage: kill_task <vm> <pid>")
-		fmt.Println("   Example: kill_task node1 12345")
+		fmt.Println("Usage: kill_task <vm> <pid>")
+		fmt.Println("Example: kill_task node1 12345")
 		return
 	}
 
 	vm := parts[1]
 	pid, err := strconv.Atoi(parts[2])
 	if err != nil {
-		fmt.Printf("❌ Invalid PID: %s\n", parts[2])
+		fmt.Printf("Invalid PID: %s\n", parts[2])
 		return
 	}
 
 	cfg, err := common.LoadConfig("config.json")
 	if err != nil {
-		fmt.Printf("❌ Failed to load config: %v\n", err)
+		fmt.Printf("Failed to load config: %v\n", err)
 		return
 	}
 
 	// Connect to leader (VM1)
 	if len(cfg.VMs) == 0 {
-		fmt.Println("❌ No VMs configured")
+		fmt.Println("No VMs configured")
 		return
 	}
 
@@ -3314,7 +3315,7 @@ func handleCLIKillTask(node *common.Node, parts []string) {
 
 	conn, err := net.DialTimeout("tcp", leaderAddr, 3*time.Second)
 	if err != nil {
-		fmt.Printf("❌ Failed to connect to leader at %s: %v\n", leaderAddr, err)
+		fmt.Printf("Failed to connect to leader at %s: %v\n", leaderAddr, err)
 		return
 	}
 	defer conn.Close()
@@ -3322,12 +3323,12 @@ func handleCLIKillTask(node *common.Node, parts []string) {
 	// Send request
 	encoder := json.NewEncoder(conn)
 	if err := encoder.Encode(msg); err != nil {
-		fmt.Printf("❌ Failed to send kill_task request: %v\n", err)
+		fmt.Printf("Failed to send kill_task request: %v\n", err)
 		return
 	}
 
-	fmt.Printf("✅ Kill request sent for task on %s with PID %d\n", vm, pid)
-	fmt.Println("   💡 Use 'list_tasks' to verify task status")
+	fmt.Printf("Kill request sent for task on %s with PID %d\n", vm, pid)
+	fmt.Println("Use 'list_tasks' to verify task status")
 }
 
 func showHelp() {
@@ -3337,45 +3338,45 @@ func showHelp() {
 	fmt.Printf("╚════════════════════════════════════════════════════════════╝\n\n")
 
 	fmt.Printf("MP1 Commands (Distributed Grep):\n")
-	fmt.Printf("  dgrep [flags] <pattern>               Search logs across cluster\n")
-	fmt.Printf("    Flags:\n")
-	fmt.Printf("      -i                                Case-insensitive search\n")
-	fmt.Printf("      -v                                Invert match (non-matching lines)\n")
-	fmt.Printf("      -c                                Count matches only\n")
-	fmt.Printf("      -E                                Extended regex\n")
-	fmt.Printf("      -e <pattern>                      Specify pattern (for patterns starting with -)\n")
-	fmt.Printf("      -m <num>                          Stop after <num> matches\n")
-	fmt.Printf("      --save <file>                     Save output to local file\n")
-	fmt.Printf("    Examples:\n")
-	fmt.Printf("      dgrep \"ERROR\"                      Find all ERROR logs\n")
-	fmt.Printf("      dgrep -i \"error\"                   Case-insensitive search\n")
-	fmt.Printf("      dgrep -c \"failed\"                  Count failed occurrences\n")
-	fmt.Printf("      dgrep -i -E \"error|warning\"        Combined flags\n\n")
+	fmt.Printf("dgrep [flags] <pattern>               Search logs across cluster\n")
+	fmt.Printf("Flags:\n")
+	fmt.Printf("-i                                Case-insensitive search\n")
+	fmt.Printf("-v                                Invert match (non-matching lines)\n")
+	fmt.Printf("-c                                Count matches only\n")
+	fmt.Printf("-E                                Extended regex\n")
+	fmt.Printf("-e <pattern>                      Specify pattern (for patterns starting with -)\n")
+	fmt.Printf("-m <num>                          Stop after <num> matches\n")
+	fmt.Printf("--save <file>                     Save output to local file\n")
+	fmt.Printf("Examples:\n")
+	fmt.Printf("dgrep \"ERROR\"                      Find all ERROR logs\n")
+	fmt.Printf("dgrep -i \"error\"                   Case-insensitive search\n")
+	fmt.Printf("dgrep -c \"failed\"                  Count failed occurrences\n")
+	fmt.Printf("dgrep -i -E \"error|warning\"        Combined flags\n\n")
 
 	fmt.Printf("Group Membership Commands (SWIM):\n")
-	fmt.Printf("  list_mem                              List all members\n")
-	fmt.Printf("  list_self                             Show this node's info\n")
-	fmt.Printf("  join                                  Join or rejoin (new incarnation)\n")
-	fmt.Printf("  leave                                 Leave group (stay in CLI)\n\n")
+	fmt.Printf("list_mem                              List all members\n")
+	fmt.Printf("list_self                             Show this node's info\n")
+	fmt.Printf("join                                  Join or rejoin (new incarnation)\n")
+	fmt.Printf("leave                                 Leave group (stay in CLI)\n\n")
 
 	fmt.Printf("Distributed File System Commands (HyDFS):\n")
-	fmt.Printf("  create <local> <hydfs>                Create file in HyDFS\n")
-	fmt.Printf("  get <hydfs> <local>                   Fetch file to local\n")
-	fmt.Printf("  append <local> <hydfs>                Append to HyDFS file\n")
-	fmt.Printf("  merge <hydfs>                         Merge file replicas\n")
-	fmt.Printf("  ls <hydfs>                            List replica locations\n")
-	fmt.Printf("  liststore                             List files on this node\n")
-	fmt.Printf("  getfromreplica <node> <hydfs> <local> Get from specific node\n")
-	fmt.Printf("  list_mem_ids                          List membership with ring IDs (sorted)\n")
-	fmt.Printf("  multiappend <hydfs> <nodes> <files>   Multi-node concurrent append\n\n")
+	fmt.Printf("create <local> <hydfs>                Create file in HyDFS\n")
+	fmt.Printf("get <hydfs> <local>                   Fetch file to local\n")
+	fmt.Printf("append <local> <hydfs>                Append to HyDFS file\n")
+	fmt.Printf("merge <hydfs>                         Merge file replicas\n")
+	fmt.Printf("ls <hydfs>                            List replica locations\n")
+	fmt.Printf("liststore                             List files on this node\n")
+	fmt.Printf("getfromreplica <node> <hydfs> <local> Get from specific node\n")
+	fmt.Printf("list_mem_ids                          List membership with ring IDs (sorted)\n")
+	fmt.Printf("multiappend <hydfs> <nodes> <files>   Multi-node concurrent append\n\n")
 
 	fmt.Printf("Stream Processing Commands (RainStorm):\n")
-	fmt.Printf("  list_tasks                            Query leader for all task details\n")
-	fmt.Printf("  kill_task <node> <pid>                Kill a specific task process\n\n")
+	fmt.Printf("list_tasks                            Query leader for all task details\n")
+	fmt.Printf("kill_task <node> <pid>                Kill a specific task process\n\n")
 
 	fmt.Printf("Utility:\n")
-	fmt.Printf("  help                                  Show this help\n")
-	fmt.Printf("  quit                                  Gracefully leave and exit\n\n")
+	fmt.Printf("help                                  Show this help\n")
+	fmt.Printf("quit                                  Gracefully leave and exit\n\n")
 
 	fmt.Printf("════════════════════════════════════════════════════════════\n\n")
 }

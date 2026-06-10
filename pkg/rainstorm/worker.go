@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"github.com/SeanKraemer/distributed-stream-processor/internal/debuglog"
 	"github.com/SeanKraemer/distributed-stream-processor/pkg/hashing"
 	"github.com/SeanKraemer/distributed-stream-processor/pkg/membership"
 	"log"
@@ -24,8 +25,8 @@ func (s *Server) HandleScheduleTask(msg RainStormMessage) {
 	task := payload.Task
 	routingTable := payload.RoutingTable
 
-	log.Printf("👷 [WORKER] Received Task: %s (Op: %s, Port: %d)", task.ID, task.OpExecutable, task.Port)
-	log.Printf("🔍 [WORKER DEBUG] Task details: TaskIndex=%d, TotalTasks=%d, InputRate=%d", task.TaskIndex, task.TotalTasks, task.InputRate)
+	log.Printf("[WORKER] Received Task: %s (Op: %s, Port: %d)", task.ID, task.OpExecutable, task.Port)
+	debuglog.Debugf("[WORKER DEBUG] Task details: TaskIndex=%d, TotalTasks=%d, InputRate=%d", task.TaskIndex, task.TotalTasks, task.InputRate)
 
 	// 2. Update Local State
 	s.ActiveTasksMutex.Lock()
@@ -58,7 +59,7 @@ func (s *Server) runTaskProcess(task *Task, routingTable map[int][]string) {
 	}
 
 	if _, err := os.Stat(cmdPath); os.IsNotExist(err) {
-		log.Printf("❌ [WORKER] Executable %s not found!", cmdPath)
+		log.Printf("[WORKER] Executable %s not found!", cmdPath)
 		return
 	}
 
@@ -137,10 +138,10 @@ func (s *Server) runTaskProcess(task *Task, routingTable map[int][]string) {
 	cmd.Stdout, _ = os.Create(logFile)
 	cmd.Stderr = cmd.Stdout
 
-	log.Printf("🚀 [WORKER] Starting process: %s %v", cmdPath, args)
+	log.Printf("[WORKER] Starting process: %s %v", cmdPath, args)
 	err = cmd.Start()
 	if err != nil {
-		log.Printf("❌ [WORKER] Failed to start task %s: %v", task.ID, err)
+		log.Printf("[WORKER] Failed to start task %s: %v", task.ID, err)
 		return
 	}
 
@@ -154,7 +155,7 @@ func (s *Server) runTaskProcess(task *Task, routingTable map[int][]string) {
 	s.TaskProcesses[pid] = cmd
 	s.TaskProcessesMutex.Unlock()
 
-	log.Printf("📍 [WORKER] TASK START: TaskID=%s, VM=%s, PID=%d, OpExe=%s, LogFile=%s",
+	log.Printf("[WORKER] TASK START: TaskID=%s, VM=%s, PID=%d, OpExe=%s, LogFile=%s",
 		task.ID, task.AssignedWorker, pid, task.OpExecutable, logFile)
 
 	// Report to leader
@@ -178,7 +179,7 @@ func (s *Server) runTaskProcess(task *Task, routingTable map[int][]string) {
 		default:
 			// Unexpected death - notify leader for restart
 			if processErr != nil {
-				log.Printf("💀 [WORKER] TASK FAILED: %s on %s (PID=%d, exit: %v)",
+				log.Printf("[WORKER] TASK FAILED: %s on %s (PID=%d, exit: %v)",
 					task.ID, task.AssignedWorker, pid, processErr)
 				s.NotifyLeaderTaskFailed(task, processErr.Error())
 			}
@@ -196,12 +197,12 @@ func (s *Server) runTaskProcess(task *Task, routingTable map[int][]string) {
 
 	// Log and report completion
 	if err != nil {
-		log.Printf("🏁 [WORKER] TASK END: TaskID=%s, VM=%s, PID=%d, Status=FAILED, Error=%v",
+		log.Printf("[WORKER] TASK END: TaskID=%s, VM=%s, PID=%d, Status=FAILED, Error=%v",
 			task.ID, task.AssignedWorker, pid, err)
 		task.State = TaskStateFailed
 		s.ReportTaskCompleted(task, false, err.Error())
 	} else {
-		log.Printf("🏁 [WORKER] TASK END: TaskID=%s, VM=%s, PID=%d, Status=SUCCESS",
+		log.Printf("[WORKER] TASK END: TaskID=%s, VM=%s, PID=%d, Status=SUCCESS",
 			task.ID, task.AssignedWorker, pid)
 		task.State = TaskStateCompleted
 		s.ReportTaskCompleted(task, true, "")
@@ -210,7 +211,7 @@ func (s *Server) runTaskProcess(task *Task, routingTable map[int][]string) {
 
 // fetchFileFromHyDFS fetches a file from HyDFS using distributed GET
 func (s *Server) fetchFileFromHyDFS(hydfsFilename string) ([]byte, error) {
-	log.Printf("🌐 [DISTRIBUTED GET] Fetching %s from HyDFS network...", hydfsFilename)
+	log.Printf("[DISTRIBUTED GET] Fetching %s from HyDFS network...", hydfsFilename)
 
 	// Calculate file ID using consistent hashing
 	fileID := hashing.HashString(hydfsFilename)
@@ -230,7 +231,7 @@ func (s *Server) fetchFileFromHyDFS(hydfsFilename string) ([]byte, error) {
 			continue
 		}
 
-		log.Printf("📍 [DISTRIBUTED GET] Trying replica at %s:%d (NodeID=%020d)",
+		log.Printf("[DISTRIBUTED GET] Trying replica at %s:%d (NodeID=%020d)",
 			replicaInfo.Hostname, replicaInfo.Port, successorNodeID)
 
 		// Send GET request to replica
@@ -257,7 +258,7 @@ func (s *Server) fetchFileFromHyDFS(hydfsFilename string) ([]byte, error) {
 		// Connect to replica
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", replicaInfo.Hostname, replicaInfo.Port), 5*time.Second)
 		if err != nil {
-			log.Printf("⚠️  [DISTRIBUTED GET] Failed to connect to %s:%d: %v", replicaInfo.Hostname, replicaInfo.Port, err)
+			log.Printf("[DISTRIBUTED GET] Failed to connect to %s:%d: %v", replicaInfo.Hostname, replicaInfo.Port, err)
 			continue
 		}
 
@@ -265,7 +266,7 @@ func (s *Server) fetchFileFromHyDFS(hydfsFilename string) ([]byte, error) {
 		conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		if _, err := conn.Write(append(jsonData, '\n')); err != nil {
 			conn.Close()
-			log.Printf("⚠️  [DISTRIBUTED GET] Failed to send request to %s:%d: %v", replicaInfo.Hostname, replicaInfo.Port, err)
+			log.Printf("[DISTRIBUTED GET] Failed to send request to %s:%d: %v", replicaInfo.Hostname, replicaInfo.Port, err)
 			continue
 		}
 
@@ -276,25 +277,25 @@ func (s *Server) fetchFileFromHyDFS(hydfsFilename string) ([]byte, error) {
 		conn.Close()
 
 		if err != nil {
-			log.Printf("⚠️  [DISTRIBUTED GET] Failed to receive response from %s:%d: %v", replicaInfo.Hostname, replicaInfo.Port, err)
+			log.Printf("[DISTRIBUTED GET] Failed to receive response from %s:%d: %v", replicaInfo.Hostname, replicaInfo.Port, err)
 			continue
 		}
 
 		var response NodeMessage
 		if err := json.Unmarshal([]byte(responseLine), &response); err != nil {
-			log.Printf("⚠️  [DISTRIBUTED GET] Failed to parse response from %s:%d: %v", replicaInfo.Hostname, replicaInfo.Port, err)
+			log.Printf("[DISTRIBUTED GET] Failed to parse response from %s:%d: %v", replicaInfo.Hostname, replicaInfo.Port, err)
 			continue
 		}
 
 		if response.Type == "get_file_response" {
 			contentStr, ok := response.Data["content"].(string)
 			if !ok {
-				log.Printf("⚠️  [DISTRIBUTED GET] Invalid content in response from %s:%d", replicaInfo.Hostname, replicaInfo.Port)
+				log.Printf("[DISTRIBUTED GET] Invalid content in response from %s:%d", replicaInfo.Hostname, replicaInfo.Port)
 				continue
 			}
 
 			content := []byte(contentStr)
-			log.Printf("✅ [DISTRIBUTED GET] Successfully fetched %d bytes from %s:%d", len(content), replicaInfo.Hostname, replicaInfo.Port)
+			log.Printf("[DISTRIBUTED GET] Successfully fetched %d bytes from %s:%d", len(content), replicaInfo.Hostname, replicaInfo.Port)
 			return content, nil
 		}
 	}
@@ -310,11 +311,11 @@ func (s *Server) runSourceTask(task *Task, targets []string) {
 		perTaskRate = task.InputRate / task.TotalTasks
 	}
 
-	log.Printf("📍 [SOURCE] TASK START: TaskID=%s, VM=%s, OpExe=internal_source, SourceFile=%s",
+	log.Printf("[SOURCE] TASK START: TaskID=%s, VM=%s, OpExe=internal_source, SourceFile=%s",
 		task.ID, task.AssignedWorker, task.OpArgs[0])
-	log.Printf("    -> Per-task rate: %d tuples/sec (total INPUT_RATE: %d / %d tasks)",
+	log.Printf("-> Per-task rate: %d tuples/sec (total INPUT_RATE: %d / %d tasks)",
 		perTaskRate, task.InputRate, task.TotalTasks)
-	log.Printf("    -> Targeting %d downstream tasks: %v", len(targets), targets)
+	log.Printf("-> Targeting %d downstream tasks: %v", len(targets), targets)
 
 	// Report task start to leader
 	task.OpExecutable = "internal_source"
@@ -326,7 +327,7 @@ func (s *Server) runSourceTask(task *Task, targets []string) {
 	//    a) Local BlockStore (HyDFS local replica)
 	//    b) Distributed GET from other HyDFS replicas
 	//    c) Local filesystem (data/ directory) - fallback per demo instructions
-	log.Printf("📥 [SOURCE] Fetching %s...", hydfsFilename)
+	log.Printf("[SOURCE] Fetching %s...", hydfsFilename)
 
 	var content []byte
 	var err error
@@ -335,25 +336,25 @@ func (s *Server) runSourceTask(task *Task, targets []string) {
 	content, err = s.BlockStore.ReadFile(hydfsFilename)
 	if err != nil {
 		// File not local - try distributed GET from other replicas
-		log.Printf("⚠️  [SOURCE] File %s not in local BlockStore, trying distributed GET...", hydfsFilename)
+		log.Printf("[SOURCE] File %s not in local BlockStore, trying distributed GET...", hydfsFilename)
 		content, err = s.fetchFileFromHyDFS(hydfsFilename)
 		if err != nil {
 			// Fallback: try local filesystem (data/ directory)
 			// This is explicitly allowed by demo instructions for source files
 			localPath := fmt.Sprintf("data/%s", hydfsFilename)
-			log.Printf("⚠️  [SOURCE] Distributed GET failed, trying local filesystem: %s", localPath)
+			log.Printf("[SOURCE] Distributed GET failed, trying local filesystem: %s", localPath)
 			content, err = os.ReadFile(localPath)
 			if err != nil {
-				log.Printf("❌ [SOURCE] Failed to fetch %s from any source: %v", hydfsFilename, err)
+				log.Printf("[SOURCE] Failed to fetch %s from any source: %v", hydfsFilename, err)
 				task.State = TaskStateFailed
 				return
 			}
-			log.Printf("✅ [SOURCE] Successfully read %d bytes from local filesystem: %s", len(content), localPath)
+			log.Printf("[SOURCE] Successfully read %d bytes from local filesystem: %s", len(content), localPath)
 		} else {
-			log.Printf("✅ [SOURCE] Successfully read %d bytes via distributed GET", len(content))
+			log.Printf("[SOURCE] Successfully read %d bytes via distributed GET", len(content))
 		}
 	} else {
-		log.Printf("✅ [SOURCE] Successfully read %d bytes from local BlockStore", len(content))
+		log.Printf("[SOURCE] Successfully read %d bytes from local BlockStore", len(content))
 	}
 
 	// 2. Split content into lines and partition among source tasks
@@ -371,12 +372,12 @@ func (s *Server) runSourceTask(task *Task, targets []string) {
 			lines = append(lines, lineWithNum{content: line, origLineNum: i + 1}) // 1-indexed line numbers
 		}
 	}
-	log.Printf("📄 [SOURCE] Task %s processing %d/%d lines (partition %d/%d)",
+	log.Printf("[SOURCE] Task %s processing %d/%d lines (partition %d/%d)",
 		task.ID, len(lines), len(allLines), task.TaskIndex, task.TotalTasks)
 
 	// 3. Create connection pool to downstream tasks
 	if len(targets) == 0 {
-		log.Printf("⚠️  [SOURCE] No downstream targets configured!")
+		log.Printf("[SOURCE] No downstream targets configured!")
 		task.State = TaskStateCompleted
 		return
 	}
@@ -387,7 +388,7 @@ func (s *Server) runSourceTask(task *Task, targets []string) {
 	decoders := make(map[string]*json.Decoder)
 
 	// Wait a bit for downstream tasks to start listening
-	log.Printf("⏳ [SOURCE] Waiting 2 seconds for downstream tasks to initialize...")
+	log.Printf("[SOURCE] Waiting 2 seconds for downstream tasks to initialize...")
 	time.Sleep(2 * time.Second)
 
 	// Retry connection with exponential backoff
@@ -403,17 +404,17 @@ func (s *Server) runSourceTask(task *Task, targets []string) {
 			}
 			if attempt < 5 {
 				waitTime := time.Duration(attempt) * 500 * time.Millisecond
-				log.Printf("⚠️  [SOURCE] Connection attempt %d to %s failed, retrying in %v...", attempt, target, waitTime)
+				log.Printf("[SOURCE] Connection attempt %d to %s failed, retrying in %v...", attempt, target, waitTime)
 				time.Sleep(waitTime)
 			}
 		}
 
 		if err != nil {
-			log.Printf("❌ [SOURCE] Failed to connect to %s after 5 attempts: %v", target, err)
+			log.Printf("[SOURCE] Failed to connect to %s after 5 attempts: %v", target, err)
 			continue
 		}
 
-		log.Printf("✅ [SOURCE] Connected to %s", target)
+		log.Printf("[SOURCE] Connected to %s", target)
 		connections[target] = conn
 		encoders[target] = json.NewEncoder(conn)
 		decoders[target] = json.NewDecoder(conn)
@@ -423,7 +424,7 @@ func (s *Server) runSourceTask(task *Task, targets []string) {
 	defer func() {
 		for target, conn := range connections {
 			conn.Close()
-			log.Printf("🔌 [SOURCE] Closed connection to %s", target)
+			log.Printf("[SOURCE] Closed connection to %s", target)
 		}
 	}()
 
@@ -446,7 +447,7 @@ func (s *Server) runSourceTask(task *Task, targets []string) {
 		interval := time.Second / time.Duration(taskRate)
 		rateLimitTicker = time.NewTicker(interval)
 		defer rateLimitTicker.Stop()
-		log.Printf("⏱️  [SOURCE] Rate limiting: %d tuples/sec (interval: %v)", taskRate, interval)
+		log.Printf("[SOURCE] Rate limiting: %d tuples/sec (interval: %v)", taskRate, interval)
 	}
 
 	for _, lineInfo := range lines {
@@ -476,7 +477,7 @@ func (s *Server) runSourceTask(task *Task, targets []string) {
 
 		// Check connection
 		if _, ok := encoders[target]; !ok {
-			log.Printf("⚠️  [SOURCE] No connection to target %s, attempting reconnect...", target)
+			log.Printf("[SOURCE] No connection to target %s, attempting reconnect...", target)
 			// Connection logic handled in retry loop below
 		}
 
@@ -509,7 +510,7 @@ func (s *Server) runSourceTask(task *Task, targets []string) {
 							// Recalculate target for this tuple
 							targetIdx = hash % len(targets)
 							target = targets[targetIdx]
-							log.Printf("✅ [SOURCE] Updated target list from leader")
+							log.Printf("[SOURCE] Updated target list from leader")
 						}
 					}
 					leaderConn.Close()
@@ -521,12 +522,12 @@ func (s *Server) runSourceTask(task *Task, targets []string) {
 					connections[target] = newConn
 					encoders[target] = json.NewEncoder(newConn)
 					decoders[target] = json.NewDecoder(newConn)
-					log.Printf("✅ [SOURCE] Reconnected to %s", target)
+					log.Printf("[SOURCE] Reconnected to %s", target)
 					encoder = encoders[target]
 					decoder = decoders[target]
 					conn = newConn
 				} else {
-					log.Printf("⚠️  [SOURCE] Reconnect failed to %s: %v", target, err)
+					log.Printf("[SOURCE] Reconnect failed to %s: %v", target, err)
 					time.Sleep(time.Duration(retryAttempt) * 500 * time.Millisecond)
 					continue
 				}
@@ -534,7 +535,7 @@ func (s *Server) runSourceTask(task *Task, targets []string) {
 
 			// Send Tuple
 			if err := encoder.Encode(tuple); err != nil {
-				log.Printf("⚠️  [SOURCE] Failed to send to %s: %v", target, err)
+				log.Printf("[SOURCE] Failed to send to %s: %v", target, err)
 				// Force reconnect next time
 				connections[target].Close()
 				delete(connections, target)
@@ -557,7 +558,7 @@ func (s *Server) runSourceTask(task *Task, targets []string) {
 
 			var resp Tuple
 			if err := decoder.Decode(&resp); err != nil {
-				log.Printf("⚠️  [SOURCE] Failed to receive Ack from %s: %v", target, err)
+				log.Printf("[SOURCE] Failed to receive Ack from %s: %v", target, err)
 				// Force reconnect
 				conn.Close()
 				delete(connections, target)
@@ -574,23 +575,23 @@ func (s *Server) runSourceTask(task *Task, targets []string) {
 				success = true
 				break
 			} else {
-				log.Printf("⚠️  [SOURCE] Unexpected response from %s: type=%s, id=%s (expected ack for %s)",
+				log.Printf("[SOURCE] Unexpected response from %s: type=%s, id=%s (expected ack for %s)",
 					target, resp.Type, resp.ID, tuple.ID)
 			}
 		}
 
 		if !success {
-			log.Printf("❌ [SOURCE] CRITICAL: Failed to deliver tuple %s to %s after retries", tuple.ID, target)
+			log.Printf("[SOURCE] CRITICAL: Failed to deliver tuple %s to %s after retries", tuple.ID, target)
 		} else {
 			tuplesSent++
 			// Log progress every 100 tuples
 			if tuplesSent%100 == 0 {
-				log.Printf("📊 [SOURCE] Sent %d tuples...", tuplesSent)
+				log.Printf("[SOURCE] Sent %d tuples...", tuplesSent)
 			}
 		}
 	}
 
-	log.Printf("✅ [SOURCE] Task %s sent %d tuples, now sending EOF markers",
+	log.Printf("[SOURCE] Task %s sent %d tuples, now sending EOF markers",
 		task.ID, tuplesSent)
 
 	// 5. Send EOF markers to all targets
@@ -604,13 +605,13 @@ func (s *Server) runSourceTask(task *Task, targets []string) {
 
 	for target, encoder := range encoders {
 		if err := encoder.Encode(eofTuple); err != nil {
-			log.Printf("⚠️  [SOURCE] Failed to send EOF to %s: %v", target, err)
+			log.Printf("[SOURCE] Failed to send EOF to %s: %v", target, err)
 		} else {
-			log.Printf("📡 [SOURCE] Sent EOF to %s", target)
+			log.Printf("[SOURCE] Sent EOF to %s", target)
 		}
 	}
 
-	log.Printf("🏁 [SOURCE] TASK END: TaskID=%s, VM=%s, Status=SUCCESS, TuplesSent=%d",
+	log.Printf("[SOURCE] TASK END: TaskID=%s, VM=%s, Status=SUCCESS, TuplesSent=%d",
 		task.ID, task.AssignedWorker, tuplesSent)
 	task.State = TaskStateCompleted
 
@@ -636,28 +637,28 @@ func (s *Server) HandleKillTaskWorker(msg RainStormMessage) {
 	var payload KillTaskPayload
 	json.Unmarshal(data, &payload)
 
-	log.Printf("💀 [WORKER] Kill request for PID %d", payload.PID)
+	log.Printf("[WORKER] Kill request for PID %d", payload.PID)
 
 	s.TaskProcessesMutex.Lock()
 	cmd, exists := s.TaskProcesses[payload.PID]
 	s.TaskProcessesMutex.Unlock()
 
 	if !exists || cmd.Process == nil {
-		log.Printf("⚠️  [WORKER] PID %d not found in active processes", payload.PID)
+		log.Printf("[WORKER] PID %d not found in active processes", payload.PID)
 		// Try to kill anyway using OS signal
 		process, err := os.FindProcess(payload.PID)
 		if err == nil {
 			process.Signal(syscall.SIGKILL)
-			log.Printf("✅ [WORKER] Sent SIGKILL to PID %d", payload.PID)
+			log.Printf("[WORKER] Sent SIGKILL to PID %d", payload.PID)
 		}
 		return
 	}
 
 	// Kill the process
 	if err := cmd.Process.Signal(syscall.SIGKILL); err != nil {
-		log.Printf("❌ [WORKER] Failed to kill PID %d: %v", payload.PID, err)
+		log.Printf("[WORKER] Failed to kill PID %d: %v", payload.PID, err)
 	} else {
-		log.Printf("✅ [WORKER] Killed PID %d", payload.PID)
+		log.Printf("[WORKER] Killed PID %d", payload.PID)
 	}
 }
 
@@ -675,14 +676,14 @@ func (s *Server) ReportTaskStarted(task *Task) {
 
 		conn, err := net.DialTimeout("tcp", leaderAddr, 2*time.Second)
 		if err != nil {
-			log.Printf("⚠️  [WORKER] Failed to report task start to leader: %v", err)
+			log.Printf("[WORKER] Failed to report task start to leader: %v", err)
 			return
 		}
 		defer conn.Close()
 
 		encoder := json.NewEncoder(conn)
 		if err := encoder.Encode(msg); err != nil {
-			log.Printf("⚠️  [WORKER] Failed to send task_started: %v", err)
+			log.Printf("[WORKER] Failed to send task_started: %v", err)
 		}
 	}
 }
@@ -707,7 +708,7 @@ func (s *Server) ReportTaskCompleted(task *Task, success bool, errorMsg string) 
 			Payload: payload,
 		}
 		s.HandleTaskCompleted(msg)
-		log.Printf("📤 [LEADER-WORKER] Reported task %s completion locally", task.ID)
+		log.Printf("[LEADER-WORKER] Reported task %s completion locally", task.ID)
 		return
 	}
 
@@ -723,16 +724,16 @@ func (s *Server) ReportTaskCompleted(task *Task, success bool, errorMsg string) 
 
 	conn, err := net.DialTimeout("tcp", leaderAddr, 2*time.Second)
 	if err != nil {
-		log.Printf("⚠️  [WORKER] Failed to report task completion to leader: %v", err)
+		log.Printf("[WORKER] Failed to report task completion to leader: %v", err)
 		return
 	}
 	defer conn.Close()
 
 	encoder := json.NewEncoder(conn)
 	if err := encoder.Encode(msg); err != nil {
-		log.Printf("⚠️  [WORKER] Failed to send task_completed: %v", err)
+		log.Printf("[WORKER] Failed to send task_completed: %v", err)
 	} else {
-		log.Printf("📤 [WORKER] Reported task %s completion to leader", task.ID)
+		log.Printf("[WORKER] Reported task %s completion to leader", task.ID)
 	}
 }
 
@@ -759,16 +760,16 @@ func (s *Server) NotifyLeaderTaskFailed(task *Task, errorMsg string) {
 
 	conn, err := net.DialTimeout("tcp", leaderAddr, 2*time.Second)
 	if err != nil {
-		log.Printf("⚠️  [WORKER] Failed to notify leader of task failure: %v", err)
+		log.Printf("[WORKER] Failed to notify leader of task failure: %v", err)
 		return
 	}
 	defer conn.Close()
 
 	encoder := json.NewEncoder(conn)
 	if err := encoder.Encode(msg); err != nil {
-		log.Printf("⚠️  [WORKER] Failed to send task_failed: %v", err)
+		log.Printf("[WORKER] Failed to send task_failed: %v", err)
 	} else {
-		log.Printf("📤 [WORKER] Notified leader of task %s failure", task.ID)
+		log.Printf("[WORKER] Notified leader of task %s failure", task.ID)
 	}
 }
 
@@ -801,7 +802,7 @@ func (s *Server) reportSourceMetrics(task *Task, tuplesProcessed *int, startTime
 			}
 
 			// Log locally
-			log.Printf("📊 [TASK %s] Rate: %.2f tuples/sec (instant), %.2f tuples/sec (avg), Total: %d",
+			log.Printf("[TASK %s] Rate: %.2f tuples/sec (instant), %.2f tuples/sec (avg), Total: %d",
 				task.ID, metrics.CurrentRate, avgRate, currentCount)
 
 			// Report to leader

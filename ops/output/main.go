@@ -18,11 +18,11 @@ type OutputOp struct {
 func (o *OutputOp) Process(t rainstorm.Tuple, emit func(rainstorm.Tuple)) {
 	// Handle EOF - flush buffer to file
 	if t.IsEOF {
-		log.Printf("🏁 [OUTPUT] Received EOF, flushing %d lines to %s", len(o.buffer), o.outputFile)
+		log.Printf("[OUTPUT] Received EOF, flushing %d lines to %s", len(o.buffer), o.outputFile)
 		if err := o.Flush(); err != nil {
-			log.Printf("❌ [OUTPUT] Failed to flush: %v", err)
+			log.Printf("[OUTPUT] Failed to flush: %v", err)
 		} else {
-			log.Printf("✅ [OUTPUT] Successfully wrote output file")
+			log.Printf("[OUTPUT] Successfully wrote output file")
 		}
 		// HyDFS upload is handled outside this operator: the framework sink path
 		// appends via -hydfs-dest, and scripts/mp4/collect_output.sh gathers the
@@ -41,7 +41,7 @@ func (o *OutputOp) Process(t rainstorm.Tuple, emit func(rainstorm.Tuple)) {
 
 	// No downstream, so don't emit
 	if len(o.buffer) <= 5 {
-		log.Printf("📝 [OUTPUT] Collected: %s", line)
+		log.Printf("[OUTPUT] Collected: %s", line)
 	}
 } // Flush writes all buffered output to file
 func (o *OutputOp) Flush() error {
@@ -49,7 +49,7 @@ func (o *OutputOp) Flush() error {
 	defer o.mu.Unlock()
 
 	if len(o.buffer) == 0 {
-		log.Printf("⚠️  [OUTPUT] No data to write")
+		log.Printf("[OUTPUT] No data to write")
 		return nil
 	}
 
@@ -64,7 +64,7 @@ func (o *OutputOp) Flush() error {
 		fmt.Fprintln(f, line)
 	}
 
-	log.Printf("✅ [OUTPUT] Wrote %d lines to %s", len(o.buffer), o.outputFile)
+	log.Printf("[OUTPUT] Wrote %d lines to %s", len(o.buffer), o.outputFile)
 	return nil
 }
 
@@ -75,7 +75,7 @@ func main() {
 		outputFile = "rainstorm_output.txt"
 	}
 
-	log.Printf("📤 [OUTPUT] Starting output sink to %s", outputFile)
+	log.Printf("[OUTPUT] Starting output sink to %s", outputFile)
 
 	op := &OutputOp{
 		outputFile: outputFile,

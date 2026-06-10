@@ -30,19 +30,22 @@ echo "RainStorm Test Orchestrator — Test $TEST_NUM"
 echo "============================================"
 echo ""
 
-# ── Step 1: reset the cluster ────────────────────────────────────────────────
-echo "Step 1: Resetting cluster (clean HyDFS state)..."
+# ── Step 1: clean local artifacts ────────────────────────────────────────────
+# Must happen while the cluster is down: logs/ is bind-mounted into every
+# container, and deleting log files out from under running nodes unlinks the
+# inodes they keep writing to.
+echo "Step 1: Cleaning local logs and outputs..."
 cd "$PROJECT_ROOT"
 docker compose down -v >/dev/null 2>&1
+"$PROJECT_ROOT/scripts/common/clean_logs.sh"
+"$PROJECT_ROOT/scripts/mp4/clean_output.sh" local
+
+# ── Step 2: start a fresh cluster ────────────────────────────────────────────
+echo ""
+echo "Step 2: Starting cluster with clean HyDFS state..."
 docker compose up -d >/dev/null 2>&1
 echo "   Waiting 10s for SWIM membership to converge..."
 sleep 10
-
-# ── Step 2: clean local artifacts ────────────────────────────────────────────
-echo ""
-echo "Step 2: Cleaning local logs and outputs..."
-"$PROJECT_ROOT/scripts/common/clean_logs.sh"
-"$PROJECT_ROOT/scripts/mp4/clean_output.sh" local
 
 # ── Step 3: upload test data ─────────────────────────────────────────────────
 echo ""

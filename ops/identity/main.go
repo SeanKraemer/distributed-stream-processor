@@ -11,7 +11,7 @@ type IdentityOp struct{}
 func (o *IdentityOp) Process(t rainstorm.Tuple, emit func(rainstorm.Tuple)) {
 	// Handle EOF - forward it downstream
 	if t.IsEOF {
-		log.Printf("🏁 [IDENTITY] Received EOF, forwarding to next stage")
+		log.Printf("[IDENTITY] Received EOF, forwarding to next stage")
 		emit(t)
 		return
 	}
@@ -21,7 +21,7 @@ func (o *IdentityOp) Process(t rainstorm.Tuple, emit func(rainstorm.Tuple)) {
 }
 
 func main() {
-	log.Printf("🔄 [IDENTITY] Starting identity operation (pass-through)")
+	log.Printf("[IDENTITY] Starting identity operation (pass-through)")
 
 	op := &IdentityOp{}
 	rainstorm.StartOperation(op)

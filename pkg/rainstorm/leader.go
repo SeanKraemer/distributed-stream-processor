@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"github.com/SeanKraemer/distributed-stream-processor/internal/debuglog"
 	"github.com/SeanKraemer/distributed-stream-processor/pkg/membership"
 	"log"
 	"net"
@@ -21,35 +22,35 @@ func (s *Server) HandleSubmitJob(msg RainStormMessage) {
 
 	// Generate job timestamp for output directory
 	jobTimestamp := time.Now().Format("20060102_150405")
-	log.Printf("👑 [LEADER] ========== RUN START: %s ========== Time: %s",
+	log.Printf("[LEADER] ========== RUN START: %s ========== Time: %s",
 		payload.App, time.Now().Format("2006-01-02 15:04:05"))
-	log.Printf("👑 [LEADER] Received Job: App=%s, Src=%s, Dest=%s, Tasks=%d, OutputDir=rainstorm_outputs/%s",
+	log.Printf("[LEADER] Received Job: App=%s, Src=%s, Dest=%s, Tasks=%d, OutputDir=rainstorm_outputs/%s",
 		payload.App, payload.SrcFile, payload.DestFile, payload.NumTasks, jobTimestamp)
 
 	// Clear old task metrics from previous jobs
 	s.MetricsMutex.Lock()
 	s.TaskMetrics = make(map[string]*TaskMetrics)
 	s.MetricsMutex.Unlock()
-	log.Printf("🧹 [LEADER] Cleared old task metrics for new job")
+	log.Printf("[LEADER] Cleared old task metrics for new job")
 
 	// Create HyDFS destination file for output (required before appends)
 	if payload.DestFile != "" {
-		log.Printf("📝 [LEADER] Creating HyDFS output file: %s", payload.DestFile)
+		log.Printf("[LEADER] Creating HyDFS output file: %s", payload.DestFile)
 		// Use distributed HyDFS create via TCP to the local HyDFS handler
 		// This ensures proper replication to the correct nodes based on consistent hashing
 		err := s.createHyDFSFile(payload.DestFile)
 		if err != nil {
 			// File might already exist - that's OK for demos where we might rerun
-			log.Printf("⚠️  [LEADER] HyDFS create returned: %v (continuing anyway)", err)
+			log.Printf("[LEADER] HyDFS create returned: %v (continuing anyway)", err)
 		} else {
-			log.Printf("✅ [LEADER] Created HyDFS output file: %s", payload.DestFile)
+			log.Printf("[LEADER] Created HyDFS output file: %s", payload.DestFile)
 		}
 	}
 
 	// 2. Validate: RainStorm supports no more than three processing stages
 	// (Plus implicit Source stage 0 and any output handling)
 	if len(payload.Stages) > 3 {
-		log.Printf("❌ [LEADER] Job rejected: Too many stages (%d). RainStorm supports maximum 3 processing stages.", len(payload.Stages))
+		log.Printf("[LEADER] Job rejected: Too many stages (%d). RainStorm supports maximum 3 processing stages.", len(payload.Stages))
 		return
 	}
 
@@ -69,10 +70,10 @@ func (s *Server) HandleSubmitJob(msg RainStormMessage) {
 	// Identify Alive Workers from MP2
 	workers := s.GetAliveWorkers()
 	if len(workers) == 0 {
-		log.Printf("❌ [LEADER] No alive workers found! Cannot schedule job.")
+		log.Printf("[LEADER] No alive workers found! Cannot schedule job.")
 		return
 	}
-	log.Printf("👑 [LEADER] Found %d alive workers", len(workers))
+	log.Printf("[LEADER] Found %d alive workers", len(workers))
 
 	workerIndex := 0
 
@@ -102,7 +103,7 @@ func (s *Server) HandleSubmitJob(msg RainStormMessage) {
 		if len(s.Config.VMs) > 0 {
 			task.RainStormLeader = net.JoinHostPort(s.Config.VMs[0], fmt.Sprintf("%d", s.Config.RainStormPort))
 		}
-		log.Printf("🔍 [LEADER DEBUG] Created source task: ID=%s, TaskIndex=%d, TotalTasks=%d", task.ID, task.TaskIndex, task.TotalTasks)
+		debuglog.Debugf("[LEADER DEBUG] Created source task: ID=%s, TaskIndex=%d, TotalTasks=%d", task.ID, task.TaskIndex, task.TotalTasks)
 		tasks = append(tasks, task)
 		basePort++
 	}
@@ -235,7 +236,7 @@ func (s *Server) HandleSubmitJob(msg RainStormMessage) {
 
 	// Start autoscale monitor if enabled
 	if payload.AutoScale {
-		log.Printf("⚖️  [RM] Autoscaling ENABLED: LW=%d, HW=%d tuples/sec per task",
+		log.Printf("[RM] Autoscaling ENABLED: LW=%d, HW=%d tuples/sec per task",
 			payload.LowWatermark, payload.HighWatermark)
 		go s.autoscaleMonitor()
 	}
@@ -245,7 +246,7 @@ func (s *Server) HandleSubmitJob(msg RainStormMessage) {
 		s.sendScheduleTask(task, routingTable)
 	}
 
-	log.Printf("👑 [LEADER] Scheduled %d tasks across %d workers", len(tasks), len(workers))
+	log.Printf("[LEADER] Scheduled %d tasks across %d workers", len(tasks), len(workers))
 	// Note: RUN END will be logged when all tasks complete (see HandleTaskCompleted)
 }
 
@@ -283,16 +284,16 @@ func (s *Server) sendScheduleTask(task Task, routingTable map[int][]string) {
 
 	conn, err := net.DialTimeout("tcp", targetAddr, 2*time.Second)
 	if err != nil {
-		log.Printf("❌ [LEADER] Failed to connect to worker %s: %v", targetAddr, err)
+		log.Printf("[LEADER] Failed to connect to worker %s: %v", targetAddr, err)
 		return
 	}
 	defer conn.Close()
 
 	encoder := json.NewEncoder(conn)
 	if err := encoder.Encode(msg); err != nil {
-		log.Printf("❌ [LEADER] Failed to send task %s to %s: %v", task.ID, task.AssignedWorker, err)
+		log.Printf("[LEADER] Failed to send task %s to %s: %v", task.ID, task.AssignedWorker, err)
 	} else {
-		log.Printf("📤 [LEADER] Sent task %s to %s", task.ID, task.AssignedWorker)
+		log.Printf("[LEADER] Sent task %s to %s", task.ID, task.AssignedWorker)
 
 		// Track task on leader
 		s.AllTasksMutex.Lock()
@@ -334,9 +335,9 @@ func (s *Server) HandleListTasks(conn net.Conn, msg RainStormMessage) {
 	response := ListTasksResponse{Tasks: tasks}
 	encoder := json.NewEncoder(conn)
 	if err := encoder.Encode(response); err != nil {
-		log.Printf("❌ [LEADER] Failed to send list_tasks response: %v", err)
+		log.Printf("[LEADER] Failed to send list_tasks response: %v", err)
 	} else {
-		log.Printf("📋 [LEADER] Sent list of %d tasks", len(tasks))
+		log.Printf("[LEADER] Sent list of %d tasks", len(tasks))
 	}
 }
 
@@ -346,7 +347,7 @@ func (s *Server) HandleKillTask(msg RainStormMessage) {
 	var payload KillTaskPayload
 	json.Unmarshal(data, &payload)
 
-	log.Printf("💀 [LEADER] Kill task request: VM=%s, PID=%d", payload.VM, payload.PID)
+	log.Printf("[LEADER] Kill task request: VM=%s, PID=%d", payload.VM, payload.PID)
 
 	// Forward kill command to the worker
 	killMsg := RainStormMessage{
@@ -358,16 +359,16 @@ func (s *Server) HandleKillTask(msg RainStormMessage) {
 	targetAddr := net.JoinHostPort(payload.VM, fmt.Sprintf("%d", s.Config.RainStormPort))
 	conn, err := net.DialTimeout("tcp", targetAddr, 2*time.Second)
 	if err != nil {
-		log.Printf("❌ [LEADER] Failed to connect to worker %s: %v", targetAddr, err)
+		log.Printf("[LEADER] Failed to connect to worker %s: %v", targetAddr, err)
 		return
 	}
 	defer conn.Close()
 
 	encoder := json.NewEncoder(conn)
 	if err := encoder.Encode(killMsg); err != nil {
-		log.Printf("❌ [LEADER] Failed to send kill command to %s: %v", payload.VM, err)
+		log.Printf("[LEADER] Failed to send kill command to %s: %v", payload.VM, err)
 	} else {
-		log.Printf("✅ [LEADER] Sent kill command to %s for PID %d", payload.VM, payload.PID)
+		log.Printf("[LEADER] Sent kill command to %s for PID %d", payload.VM, payload.PID)
 	}
 }
 
@@ -385,16 +386,16 @@ func (s *Server) forwardKillToWorker(vm string, pid int) {
 	targetAddr := net.JoinHostPort(vm, fmt.Sprintf("%d", s.Config.RainStormPort))
 	conn, err := net.DialTimeout("tcp", targetAddr, 2*time.Second)
 	if err != nil {
-		log.Printf("❌ [RM] Failed to connect to worker %s: %v", targetAddr, err)
+		log.Printf("[RM] Failed to connect to worker %s: %v", targetAddr, err)
 		return
 	}
 	defer conn.Close()
 
 	encoder := json.NewEncoder(conn)
 	if err := encoder.Encode(killMsg); err != nil {
-		log.Printf("❌ [RM] Failed to send kill command to %s: %v", vm, err)
+		log.Printf("[RM] Failed to send kill command to %s: %v", vm, err)
 	} else {
-		log.Printf("✅ [RM] Sent kill command to %s for PID %d", vm, pid)
+		log.Printf("[RM] Sent kill command to %s for PID %d", vm, pid)
 	}
 }
 
@@ -409,7 +410,7 @@ func (s *Server) HandleTaskStarted(msg RainStormMessage) {
 		existingTask.PID = task.PID
 		existingTask.LogFile = task.LogFile
 		existingTask.State = TaskStateRunning
-		log.Printf("📍 [LEADER] TASK START: TaskID=%s, VM=%s, PID=%d, OpExe=%s, LogFile=%s, Time=%s",
+		log.Printf("[LEADER] TASK START: TaskID=%s, VM=%s, PID=%d, OpExe=%s, LogFile=%s, Time=%s",
 			task.ID, existingTask.AssignedWorker, task.PID, existingTask.OpExecutable,
 			task.LogFile, time.Now().Format("2006-01-02 15:04:05"))
 	}
@@ -430,7 +431,7 @@ func (s *Server) HandleTaskMetrics(msg RainStormMessage) {
 	s.MetricsMutex.Unlock()
 
 	// Log individual task rate
-	log.Printf("📊 [RM] Task %s: %.2f tuples/sec, Total: %d",
+	debuglog.Debugf("[RM] Task %s: %.2f tuples/sec, Total: %d",
 		metrics.TaskID, metrics.CurrentRate, metrics.TuplesProcessed)
 
 	// Aggregate by stage and log
@@ -466,7 +467,7 @@ func (s *Server) aggregateAndLogStageMetrics() {
 			totalTuples += m.TuplesProcessed
 		}
 
-		log.Printf("📊 [RM] Stage %d: %.2f tuples/sec total (%d tasks, %d total tuples)",
+		debuglog.Debugf("[RM] Stage %d: %.2f tuples/sec total (%d tasks, %d total tuples)",
 			stageID, totalRate, len(metricsSlice), totalTuples)
 	}
 }
@@ -474,7 +475,7 @@ func (s *Server) aggregateAndLogStageMetrics() {
 // autoscaleMonitor runs in the background and checks stage rates every second
 // It scales up if avg rate per task > HW, scales down if < LW
 func (s *Server) autoscaleMonitor() {
-	log.Printf("⚖️  [RM] Autoscale monitor started")
+	log.Printf("[RM] Autoscale monitor started")
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -484,7 +485,7 @@ func (s *Server) autoscaleMonitor() {
 	for {
 		select {
 		case <-s.AutoScaleStopChan:
-			log.Printf("⚖️  [RM] Autoscale monitor stopped")
+			log.Printf("[RM] Autoscale monitor stopped")
 			return
 		case <-ticker.C:
 			s.checkAndScale(scaleCooldown)
@@ -564,7 +565,7 @@ func (s *Server) checkAndScale(cooldown time.Duration) {
 		// NOTE: Don't upscale Stage 1 - source has already distributed work to original tasks
 		// New Stage 1 tasks would have no input and fail endlessly
 		if avgRatePerTask > float64(hw) && stageID > 1 {
-			log.Printf("⚖️  [RM] UPSCALE TRIGGERED: Stage %d avgRate=%.2f > HW=%d, tasks=%d->%d",
+			log.Printf("[RM] UPSCALE TRIGGERED: Stage %d avgRate=%.2f > HW=%d, tasks=%d->%d",
 				stageID, avgRatePerTask, hw, currentTaskCount, currentTaskCount+1)
 			s.scaleStage(stageID, 1) // Add 1 task
 			// Reset low rate tracking since we're scaling up
@@ -573,7 +574,7 @@ func (s *Server) checkAndScale(cooldown time.Duration) {
 			s.AutoScaleMutex.Unlock()
 			return // Only one scaling action per check
 		} else if avgRatePerTask > float64(hw) && stageID == 1 {
-			log.Printf("ℹ️  [RM] Skipping upscale for Stage 1 (source already distributed work)")
+			log.Printf("[RM] Skipping upscale for Stage 1 (source already distributed work)")
 		}
 
 		// Scale DOWN: avg rate per task < LW (sustained for 3+ seconds)
@@ -586,13 +587,13 @@ func (s *Server) checkAndScale(cooldown time.Duration) {
 				// First time below threshold - start tracking
 				s.LowRateStart[stageID] = time.Now()
 				s.AutoScaleMutex.Unlock()
-				log.Printf("⏱️  [RM] Stage %d below LW (avgRate=%.2f < %d), starting sustained check", stageID, avgRatePerTask, lw)
+				log.Printf("[RM] Stage %d below LW (avgRate=%.2f < %d), starting sustained check", stageID, avgRatePerTask, lw)
 			} else {
 				// Check if sustained for at least 3 seconds
 				if time.Since(lowRateStart) >= 3*time.Second {
 					delete(s.LowRateStart, stageID) // Reset for next downscale
 					s.AutoScaleMutex.Unlock()
-					log.Printf("⚖️  [RM] DOWNSCALE TRIGGERED: Stage %d avgRate=%.2f < LW=%d (sustained 3+ sec), tasks=%d->%d",
+					log.Printf("[RM] DOWNSCALE TRIGGERED: Stage %d avgRate=%.2f < LW=%d (sustained 3+ sec), tasks=%d->%d",
 						stageID, avgRatePerTask, lw, currentTaskCount, currentTaskCount-1)
 					s.scaleStage(stageID, -1) // Remove 1 task
 					return                    // Only one scaling action per check
@@ -618,7 +619,7 @@ func (s *Server) scaleStage(stageID int, delta int) {
 	newCount := currentCount + delta
 
 	if newCount < 1 {
-		log.Printf("⚖️  [RM] Cannot scale Stage %d below 1 task", stageID)
+		log.Printf("[RM] Cannot scale Stage %d below 1 task", stageID)
 		return
 	}
 
@@ -646,14 +647,14 @@ func (s *Server) addTaskToStage(stageID int, taskIndex int) {
 	}
 
 	if stageConfig == nil {
-		log.Printf("❌ [RM] Cannot find config for stage %d", stageID)
+		log.Printf("[RM] Cannot find config for stage %d", stageID)
 		return
 	}
 
 	// Get a worker to assign the task
 	workers := s.GetAliveWorkers()
 	if len(workers) == 0 {
-		log.Printf("❌ [RM] No alive workers to add task")
+		log.Printf("[RM] No alive workers to add task")
 		return
 	}
 
@@ -710,7 +711,7 @@ func (s *Server) addTaskToStage(stageID int, taskIndex int) {
 		s.UpscaledTaskIDs = make(map[string]bool)
 	}
 	s.UpscaledTaskIDs[task.ID] = true
-	log.Printf("📝 [RM] Incremented ExpectedTasks to %d for upscaled task %s", s.ExpectedTasks, task.ID)
+	log.Printf("[RM] Incremented ExpectedTasks to %d for upscaled task %s", s.ExpectedTasks, task.ID)
 	s.JobMutex.Unlock()
 
 	// Update routing table
@@ -726,7 +727,7 @@ func (s *Server) addTaskToStage(stageID int, taskIndex int) {
 	// Schedule the new task
 	s.sendScheduleTask(task, updatedRouting)
 
-	log.Printf("⚖️  [RM] ADDED Task %s on %s:%d", task.ID, worker, taskPort)
+	log.Printf("[RM] ADDED Task %s on %s:%d", task.ID, worker, taskPort)
 }
 
 // removeTaskFromStage gracefully stops a task from the given stage
@@ -738,7 +739,7 @@ func (s *Server) removeTaskFromStage(stageID int, taskIndex int) {
 	task, exists := s.AllTasks[taskID]
 	if !exists {
 		s.AllTasksMutex.RUnlock()
-		log.Printf("⚖️  [RM] Task %s not found for removal", taskID)
+		log.Printf("[RM] Task %s not found for removal", taskID)
 		return
 	}
 	worker := task.AssignedWorker
@@ -765,7 +766,7 @@ func (s *Server) removeTaskFromStage(stageID int, taskIndex int) {
 	if !s.CompletedTaskIDs[taskID] {
 		s.CompletedTaskIDs[taskID] = true
 		s.CompletedTasks++
-		log.Printf("📝 [RM] Marking killed task %s as completed (%d/%d)", taskID, s.CompletedTasks, s.ExpectedTasks)
+		log.Printf("[RM] Marking killed task %s as completed (%d/%d)", taskID, s.CompletedTasks, s.ExpectedTasks)
 	}
 	s.JobMutex.Unlock()
 
@@ -782,7 +783,7 @@ func (s *Server) removeTaskFromStage(stageID int, taskIndex int) {
 	go func() {
 		time.Sleep(15 * time.Second) // Grace period (matches qz-dev stable implementation)
 		if !s.isTaskCompleted(taskID) {
-			log.Printf("⚠️  [RM] Task %s didn't exit after EOF, force killing", taskID)
+			log.Printf("[RM] Task %s didn't exit after EOF, force killing", taskID)
 			s.AllTasksMutex.RLock()
 			t, exists := s.AllTasks[taskID]
 			pid := 0
@@ -800,17 +801,17 @@ func (s *Server) removeTaskFromStage(stageID int, taskIndex int) {
 		s.AllTasksMutex.Unlock()
 	}()
 
-	log.Printf("⚖️  [RM] REMOVED Task %s from %s (graceful shutdown initiated)", taskID, worker)
+	log.Printf("[RM] REMOVED Task %s from %s (graceful shutdown initiated)", taskID, worker)
 }
 
 // sendEOFToTask sends artificial EOF markers to a task to trigger graceful shutdown
 func (s *Server) sendEOFToTask(worker string, port int, numSources int, taskID string) {
-	log.Printf("📨 [RM] Sending %d artificial EOF markers to task %s for graceful shutdown", numSources, taskID)
+	log.Printf("[RM] Sending %d artificial EOF markers to task %s for graceful shutdown", numSources, taskID)
 
 	taskAddr := net.JoinHostPort(worker, fmt.Sprintf("%d", port))
 	conn, err := net.DialTimeout("tcp", taskAddr, 3*time.Second)
 	if err != nil {
-		log.Printf("⚠️  [RM] Failed to connect to task %s for EOF: %v", taskID, err)
+		log.Printf("[RM] Failed to connect to task %s for EOF: %v", taskID, err)
 		return
 	}
 	defer conn.Close()
@@ -827,11 +828,11 @@ func (s *Server) sendEOFToTask(worker string, port int, numSources int, taskID s
 		}
 
 		if err := encoder.Encode(eofTuple); err != nil {
-			log.Printf("⚠️  [RM] Failed to send EOF %d/%d to task %s: %v", i+1, numSources, taskID, err)
+			log.Printf("[RM] Failed to send EOF %d/%d to task %s: %v", i+1, numSources, taskID, err)
 		}
 	}
 
-	log.Printf("✅ [RM] Sent %d EOF markers to task %s (expecting graceful shutdown)", numSources, taskID)
+	log.Printf("[RM] Sent %d EOF markers to task %s (expecting graceful shutdown)", numSources, taskID)
 }
 
 // isTaskCompleted checks if a task has reported completion
@@ -866,7 +867,7 @@ func (s *Server) sendRoutingUpdate(task *Task, routingTable map[int][]string) {
 	addr := net.JoinHostPort(task.AssignedWorker, fmt.Sprintf("%d", task.Port))
 	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 	if err != nil {
-		log.Printf("⚠️  [RM] Failed to send routing update to %s: %v", task.ID, err)
+		log.Printf("[RM] Failed to send routing update to %s: %v", task.ID, err)
 		return
 	}
 	defer conn.Close()
@@ -885,9 +886,9 @@ func (s *Server) sendRoutingUpdate(task *Task, routingTable map[int][]string) {
 
 	encoder := json.NewEncoder(conn)
 	if err := encoder.Encode(tuple); err != nil {
-		log.Printf("⚠️  [RM] Failed to encode routing update for %s: %v", task.ID, err)
+		log.Printf("[RM] Failed to encode routing update for %s: %v", task.ID, err)
 	} else {
-		log.Printf("📡 [RM] Sent routing update to %s: %d targets for stage %d", task.ID, len(targets), downstreamStageID)
+		log.Printf("[RM] Sent routing update to %s: %d targets for stage %d", task.ID, len(targets), downstreamStageID)
 	}
 }
 
@@ -913,7 +914,7 @@ func (s *Server) HandleTaskCompleted(msg RainStormMessage) {
 	if !payload.Success {
 		status = fmt.Sprintf("FAILED: %s", payload.Error)
 	}
-	log.Printf("🏁 [LEADER] TASK END: TaskID=%s, VM=%s, PID=%d, OpExe=%s, LogFile=%s, Status=%s, Time=%s",
+	log.Printf("[LEADER] TASK END: TaskID=%s, VM=%s, PID=%d, OpExe=%s, LogFile=%s, Status=%s, Time=%s",
 		payload.TaskID, payload.VM, payload.PID, payload.OpExe, payload.LogFile, status,
 		time.Now().Format("2006-01-02 15:04:05"))
 
@@ -985,15 +986,15 @@ func (s *Server) HandleTaskCompleted(msg RainStormMessage) {
 	s.JobMutex.Unlock()
 
 	if !alreadyCounted {
-		log.Printf("📈 [LEADER] Task completion: %d/%d tasks done (original: %d/%d, upscaled: %v)",
+		log.Printf("[LEADER] Task completion: %d/%d tasks done (original: %d/%d, upscaled: %v)",
 			completed, expected, originalCompleted, originalCount, isUpscaledTask)
 	} else {
-		log.Printf("⚠️  [LEADER] Duplicate completion for task %s (already counted)", payload.TaskID)
+		log.Printf("[LEADER] Duplicate completion for task %s (already counted)", payload.TaskID)
 	}
 
 	// Send EOF to upscaled tasks when all original tasks complete
 	if shouldSendEOFToUpscaled && len(upscaledTasks) > 0 {
-		log.Printf("📨 [LEADER] All %d original tasks done, sending EOF to %d upscaled tasks",
+		log.Printf("[LEADER] All %d original tasks done, sending EOF to %d upscaled tasks",
 			originalCount, len(upscaledTasks))
 		for _, task := range upscaledTasks {
 			go s.sendEOFToTask(task.AssignedWorker, task.Port, task.NumSources, task.ID)
@@ -1010,7 +1011,7 @@ func (s *Server) HandleTaskCompleted(msg RainStormMessage) {
 
 	if completed >= expected && !alreadyEnded {
 		duration := time.Since(startTime)
-		log.Printf("🏁 [LEADER] ========== RUN END: %s ========== Time: %s, Duration: %s",
+		log.Printf("[LEADER] ========== RUN END: %s ========== Time: %s, Duration: %s",
 			jobName, time.Now().Format("2006-01-02 15:04:05"), duration.Round(time.Second))
 
 		// Collect output from sink tasks and merge to HyDFS
@@ -1027,7 +1028,7 @@ func (s *Server) HandleTaskFailure(msg RainStormMessage) {
 	var payload TaskFailurePayload
 	json.Unmarshal(data, &payload)
 
-	log.Printf("💀 [LEADER] TASK FAILED: %s on %s (PID=%d, Error=%s)",
+	log.Printf("[LEADER] TASK FAILED: %s on %s (PID=%d, Error=%s)",
 		payload.TaskID, payload.VM, payload.PID, payload.Error)
 
 	// Check if job has already ended - don't restart tasks after job completion
@@ -1036,7 +1037,7 @@ func (s *Server) HandleTaskFailure(msg RainStormMessage) {
 	s.JobMutex.RUnlock()
 
 	if jobEnded {
-		log.Printf("⚠️  [LEADER] Ignoring task failure for %s - job already ended", payload.TaskID)
+		log.Printf("[LEADER] Ignoring task failure for %s - job already ended", payload.TaskID)
 		return
 	}
 
@@ -1045,7 +1046,7 @@ func (s *Server) HandleTaskFailure(msg RainStormMessage) {
 	task, exists := s.AllTasks[payload.TaskID]
 	if !exists {
 		s.AllTasksMutex.Unlock()
-		log.Printf("⚠️  [LEADER] Failed task %s not found in AllTasks", payload.TaskID)
+		log.Printf("[LEADER] Failed task %s not found in AllTasks", payload.TaskID)
 		return
 	}
 	task.State = TaskStateFailed
@@ -1057,14 +1058,14 @@ func (s *Server) HandleTaskFailure(msg RainStormMessage) {
 	s.JobMutex.RUnlock()
 
 	if routingTable == nil {
-		log.Printf("❌ [LEADER] No routing table available for task restart")
+		log.Printf("[LEADER] No routing table available for task restart")
 		return
 	}
 
 	// Select a healthy VM for restart (can be same VM - process is dead anyway)
 	workers := s.GetAliveWorkers()
 	if len(workers) == 0 {
-		log.Printf("❌ [LEADER] No alive workers available for task restart")
+		log.Printf("[LEADER] No alive workers available for task restart")
 		return
 	}
 
@@ -1094,7 +1095,7 @@ func (s *Server) HandleTaskFailure(msg RainStormMessage) {
 		ExactlyOnce:     task.ExactlyOnce,
 	}
 
-	log.Printf("🔄 [LEADER] TASK RESTART: %s on %s (was on %s)",
+	log.Printf("[LEADER] TASK RESTART: %s on %s (was on %s)",
 		restartTask.ID, newWorker, payload.VM)
 
 	// Update task in AllTasks with new worker assignment
@@ -1112,7 +1113,7 @@ func (s *Server) HandleTaskFailure(msg RainStormMessage) {
 		for i, addr := range targets {
 			if addr == oldAddr {
 				s.CurrentRoutingTable[task.StageID][i] = newAddr
-				log.Printf("🔄 [LEADER] Updated routing table: %s -> %s", oldAddr, newAddr)
+				log.Printf("[LEADER] Updated routing table: %s -> %s", oldAddr, newAddr)
 				break
 			}
 		}
@@ -1144,15 +1145,15 @@ func (s *Server) HandleGetTaskLocation(conn net.Conn, msg RainStormMessage) {
 
 	encoder := json.NewEncoder(conn)
 	if err := encoder.Encode(response); err != nil {
-		log.Printf("❌ [LEADER] Failed to send task location response: %v", err)
+		log.Printf("[LEADER] Failed to send task location response: %v", err)
 	}
 }
 
 // collectAndMergeOutput collects output files from sink tasks and merges them to HyDFS
 // This runs asynchronously after RUN END is detected
 func (s *Server) collectAndMergeOutput(destFile string, outputFiles map[string]string) {
-	log.Printf("📦 [LEADER] Starting output collection for HyDFS file: %s", destFile)
-	log.Printf("📦 [LEADER] Output files to collect: %v", outputFiles)
+	log.Printf("[LEADER] Starting output collection for HyDFS file: %s", destFile)
+	log.Printf("[LEADER] Output files to collect: %v", outputFiles)
 
 	// Collection is performed out-of-band: sink tasks write
 	// rainstorm_outputs/{timestamp}/ locally on each worker, and
@@ -1161,7 +1162,7 @@ func (s *Server) collectAndMergeOutput(destFile string, outputFiles map[string]s
 	s.JobMutex.RLock()
 	jobTs := s.JobTimestamp
 	s.JobMutex.RUnlock()
-	log.Printf("📦 [LEADER] Output collection placeholder - outputs are in rainstorm_outputs/%s/ on worker nodes", jobTs)
+	log.Printf("[LEADER] Output collection placeholder - outputs are in rainstorm_outputs/%s/ on worker nodes", jobTs)
 }
 
 // createHyDFSFile creates an empty file in HyDFS using the distributed protocol
@@ -1189,7 +1190,7 @@ func (s *Server) createHyDFSFile(filename string) error {
 
 	// Send create command
 	cmd := fmt.Sprintf("create %s %s\n", tmpPath, filename)
-	log.Printf("📝 [LEADER] Sending HyDFS create command: %s", strings.TrimSpace(cmd))
+	log.Printf("[LEADER] Sending HyDFS create command: %s", strings.TrimSpace(cmd))
 
 	conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	if _, err := conn.Write([]byte(cmd)); err != nil {
@@ -1202,13 +1203,13 @@ func (s *Server) createHyDFSFile(filename string) error {
 	response, err := reader.ReadString('\n')
 	if err != nil {
 		// If we timeout, wait a bit and assume it worked (the file create is async)
-		log.Printf("⚠️  [LEADER] Response timeout, waiting for create to complete...")
+		log.Printf("[LEADER] Response timeout, waiting for create to complete...")
 		time.Sleep(5 * time.Second)
 		return nil
 	}
 
 	response = strings.TrimSpace(response)
-	log.Printf("📝 [LEADER] HyDFS create response: %s", response)
+	log.Printf("[LEADER] HyDFS create response: %s", response)
 
 	if strings.HasPrefix(response, "OK") {
 		return nil

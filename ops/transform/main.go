@@ -36,7 +36,7 @@ func extractFirst3Fields(line string) string {
 func (o *TransformOp) Process(t rainstorm.Tuple, emit func(rainstorm.Tuple)) {
 	// Handle EOF - forward it downstream
 	if t.IsEOF {
-		log.Printf("🏁 [TRANSFORM] Received EOF, forwarding to next stage")
+		log.Printf("[TRANSFORM] Received EOF, forwarding to next stage")
 		emit(t)
 		return
 	}
@@ -58,7 +58,7 @@ func (o *TransformOp) Process(t rainstorm.Tuple, emit func(rainstorm.Tuple)) {
 }
 
 func main() {
-	log.Printf("✂️ [TRANSFORM] Starting field extraction operation (fields 1-3)")
+	log.Printf("[TRANSFORM] Starting field extraction operation (fields 1-3)")
 
 	op := &TransformOp{}
 	rainstorm.StartOperation(op)

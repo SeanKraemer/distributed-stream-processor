@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/SeanKraemer/distributed-stream-processor/internal/debuglog"
 	"github.com/SeanKraemer/distributed-stream-processor/pkg/rainstorm"
 	"log"
 	"sync"
@@ -26,10 +27,10 @@ func (o *CountOp) Process(t rainstorm.Tuple, emit func(rainstorm.Tuple)) {
 		o.mu.Unlock()
 
 		if !alreadyFlushed {
-			log.Printf("🏁 [COUNT] Received first EOF, flushing %d counts", len(o.counts))
+			log.Printf("[COUNT] Received first EOF, flushing %d counts", len(o.counts))
 			o.FlushCounts(emit)
 		} else {
-			log.Printf("🏁 [COUNT] Received additional EOF, skipping flush (already flushed)")
+			log.Printf("[COUNT] Received additional EOF, skipping flush (already flushed)")
 		}
 		emit(t) // Always forward EOF
 		return
@@ -45,7 +46,7 @@ func (o *CountOp) Process(t rainstorm.Tuple, emit func(rainstorm.Tuple)) {
 	// Debug logging for first 10 tuples
 	if o.tupleCount < 10 {
 		o.tupleCount++
-		log.Printf("🔍 [COUNT DEBUG #%d] Key: %q", o.tupleCount, key)
+		debuglog.Debugf("[COUNT DEBUG #%d] Key: %q", o.tupleCount, key)
 	}
 
 	o.counts[key]++
@@ -66,7 +67,7 @@ func (o *CountOp) FlushCounts(emit func(rainstorm.Tuple)) {
 		emit(countTuple)
 	}
 
-	log.Printf("📊 [COUNT] Flushed %d unique keys", len(o.counts))
+	log.Printf("[COUNT] Flushed %d unique keys", len(o.counts))
 }
 
 // CountOpWrapper wraps CountOp and handles initialization after flag parsing
@@ -78,7 +79,7 @@ type CountOpWrapper struct {
 func (w *CountOpWrapper) Process(t rainstorm.Tuple, emit func(rainstorm.Tuple)) {
 	// Initialize on first call (after flag.Parse has been called by StartOperation)
 	if !w.initialized {
-		log.Printf("🔢 [COUNT] Starting count operation (grouping by tuple Key)")
+		log.Printf("[COUNT] Starting count operation (grouping by tuple Key)")
 
 		w.actualOp = &CountOp{
 			counts: make(map[string]int),

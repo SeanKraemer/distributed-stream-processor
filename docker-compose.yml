@@ -9,6 +9,9 @@ x-node-defaults: &node-defaults
     dockerfile: Dockerfile
   stdin_open: true   # Keep stdin open so the interactive CLI stays alive
   tty: true          # Allocate a pseudo-TTY
+  environment:
+    # Set LOG_LEVEL=debug on the host to enable per-tuple diagnostics
+    - LOG_LEVEL=${LOG_LEVEL:-}
   networks:
     - rainstorm-net
   volumes:
