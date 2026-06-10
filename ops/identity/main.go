@@ -1,8 +1,8 @@
 package main
 
 import (
-	"log"
 	"github.com/SeanKraemer/distributed-stream-processor/pkg/rainstorm"
+	"log"
 )
 
 // IdentityOp passes through tuples unchanged

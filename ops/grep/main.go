@@ -3,8 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"github.com/SeanKraemer/distributed-stream-processor/pkg/rainstorm"
+	"log"
 	"regexp"
 	"strings"
 )

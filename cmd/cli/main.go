@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -148,7 +149,7 @@ func main() {
 	if len(cfg.Nodes) > 0 {
 		leaderHost = cfg.Nodes[0]
 	}
-	leaderAddr := fmt.Sprintf("%s:%d", leaderHost, cfg.RainStormPort)
+	leaderAddr := net.JoinHostPort(leaderHost, strconv.Itoa(cfg.RainStormPort))
 
 	conn, err := net.DialTimeout("tcp", leaderAddr, 5*time.Second)
 	if err != nil {

@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"github.com/SeanKraemer/distributed-stream-processor/pkg/rainstorm"
+	"log"
 	"sync"
 )
 
